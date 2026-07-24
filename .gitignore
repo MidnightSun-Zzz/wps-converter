@@ -14,7 +14,11 @@ wheels/
 htmlcov/
 .env
 
+# IDE
+.idea/
+
 # Local conversion samples and generated output
 samples/
 converted/
 /tests/docs/
+AGENTS.md

@@ -100,7 +100,7 @@ docker compose ps
 docker compose down
 ```
 
-Compose 默认监听宿主机 `8000` 端口。可通过 `CONVERTER_PORT` 修改宿主机端口。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
+Compose 默认监听宿主机 `8028` 端口。可通过 `CONVERTER_PORT` 修改宿主机端口。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
 
 生产环境仍建议在 Nginx、Ingress 或 API 网关设置请求体上限，阻止异常流量到达应用。例如应用上限为 10 MB 时，可将网关 multipart 请求体上限设置为 11 MB，为文件名和 multipart 头预留少量空间。应用自身会在流式解析期间按文件内容的精确字节数执行 10 MB 限制。
 
@@ -111,7 +111,7 @@ docker build -t wps-converter:local .
 docker run --rm \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=512m \
-  -p 8000:8000 \
+  -p 8028:8000 \
   -e CONVERTER_API_KEY='replace-with-a-long-random-secret' \
   wps-converter:local
 ```
@@ -125,7 +125,7 @@ curl --fail-with-body \
   -H 'X-API-Key: replace-with-a-long-random-secret' \
   -F 'file=@./示例文档.wps' \
   --output './示例文档.docx' \
-  http://127.0.0.1:8000/api/v1/convert
+  http://127.0.0.1:8028/api/v1/convert
 ```
 
 转换 ET 文件：
@@ -135,14 +135,14 @@ curl --fail-with-body \
   -H 'X-API-Key: replace-with-a-long-random-secret' \
   -F 'file=@./数据.et' \
   --output './数据.xlsx' \
-  http://127.0.0.1:8000/api/v1/convert
+  http://127.0.0.1:8028/api/v1/convert
 ```
 
 检查健康状态：
 
 ```bash
-curl http://127.0.0.1:8000/health/live
-curl http://127.0.0.1:8000/health/ready
+curl http://127.0.0.1:8028/health/live
+curl http://127.0.0.1:8028/health/ready
 ```
 
 ## Java 17 调用示例
@@ -178,7 +178,7 @@ public class ConvertExample {
                         suffix.getBytes(StandardCharsets.UTF_8)));
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://127.0.0.1:8000/api/v1/convert"))
+                .uri(URI.create("http://127.0.0.1:8028/api/v1/convert"))
                 .header("X-API-Key", "replace-with-a-long-random-secret")
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(body)
