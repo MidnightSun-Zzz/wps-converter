@@ -8,6 +8,7 @@ import stat
 import tempfile
 import unicodedata
 import zipfile
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -307,13 +308,20 @@ def validate_ooxml_output(output_path: Path, spec: FormatSpec) -> None:
         ) from exc
 
 
-async def stream_file(output_path: Path, workspace: TaskWorkspace):
+async def stream_file(
+    output_path: Path,
+    workspace: TaskWorkspace,
+    cleanup_callback: Callable[[], Awaitable[None]] | None = None,
+):
     try:
         async with aiofiles.open(output_path, "rb") as converted:
             while chunk := await converted.read(IO_CHUNK_SIZE):
                 yield chunk
     finally:
-        await workspace.cleanup()
+        if cleanup_callback is None:
+            await workspace.cleanup()
+        else:
+            await cleanup_callback()
 
 
 def content_disposition(filename: str) -> str:

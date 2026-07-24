@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
-from starlette.datastructures import UploadFile
+from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException
 
 from wps_converter.config import Settings
@@ -27,6 +27,7 @@ from wps_converter.converter import (
     stream_file,
 )
 from wps_converter.errors import ServiceError
+from wps_converter.multipart import LimitedUploadParser, UploadTooLarge
 
 LOGGER = logging.getLogger("wps_converter")
 
@@ -154,45 +155,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/v1/convert", dependencies=[Depends(authenticate)])
     async def convert(request: Request) -> StreamingResponse:
         request_id = _request_id(request)
-        try:
-            form = await request.form(max_files=2, max_fields=10)
-        except MultiPartException as exc:
-            raise ServiceError(
-                422,
-                "INVALID_REQUEST",
-                "The multipart request must contain exactly one file field",
-            ) from exc
-        uploaded_items = [
-            value
-            for _, value in form.multi_items()
-            if isinstance(value, UploadFile)
-        ]
-        file_values = form.getlist("file")
-        if (
-            len(uploaded_items) != 1
-            or len(file_values) != 1
-            or not isinstance(file_values[0], UploadFile)
-        ):
-            await form.close()
-            raise ServiceError(
-                422,
-                "INVALID_REQUEST",
-                "The multipart request must contain exactly one file field",
-            )
-        file = cast(UploadFile, file_values[0])
-        try:
-            safe_name, spec = sanitize_upload_name(file.filename)
-        except Exception:
-            await form.close()
-            raise
         started = time.monotonic()
         size = 0
         outcome = "failed"
         exit_code: int | None = None
+        source_extension = "unknown"
+        form: FormData | None = None
         workspace: TaskWorkspace | None = None
+        resources_released = False
+        release_lock = asyncio.Lock()
         acquired = await limiter.try_acquire()
         if not acquired:
-            await form.close()
             raise ServiceError(
                 429,
                 "CONCURRENCY_LIMIT",
@@ -200,7 +173,74 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 headers={"Retry-After": "1"},
             )
 
+        async def release_resources() -> None:
+            nonlocal resources_released
+            async with release_lock:
+                if resources_released:
+                    return
+                if workspace is not None:
+                    await workspace.cleanup()
+                await limiter.release()
+                resources_released = True
+                LOGGER.info(
+                    "conversion_finished request_id=%s source_extension=%s "
+                    "size_bytes=%d outcome=%s exit_code=%s duration_ms=%d",
+                    request_id,
+                    source_extension,
+                    size,
+                    outcome,
+                    exit_code if exit_code is not None else "none",
+                    int((time.monotonic() - started) * 1000),
+                )
+
         try:
+            content_type = request.headers.get("content-type", "")
+            if content_type.split(";", 1)[0].strip().lower() != (
+                "multipart/form-data"
+            ):
+                raise ServiceError(
+                    422,
+                    "INVALID_REQUEST",
+                    "The multipart request must contain exactly one file field",
+                )
+            try:
+                form = await LimitedUploadParser(
+                    request.headers,
+                    request.stream(),
+                    max_file_size=configured.max_file_size_bytes,
+                ).parse()
+            except UploadTooLarge as exc:
+                raise ServiceError(
+                    413,
+                    "FILE_TOO_LARGE",
+                    "The uploaded file exceeds the configured size limit",
+                ) from exc
+            except MultiPartException as exc:
+                raise ServiceError(
+                    422,
+                    "INVALID_REQUEST",
+                    "The multipart request must contain exactly one file field",
+                ) from exc
+
+            uploaded_items = [
+                value
+                for _, value in form.multi_items()
+                if isinstance(value, UploadFile)
+            ]
+            file_values = form.getlist("file")
+            if (
+                len(uploaded_items) != 1
+                or len(file_values) != 1
+                or not isinstance(file_values[0], UploadFile)
+            ):
+                raise ServiceError(
+                    422,
+                    "INVALID_REQUEST",
+                    "The multipart request must contain exactly one file field",
+                )
+            file = cast(UploadFile, file_values[0])
+            safe_name, spec = sanitize_upload_name(file.filename)
+            source_extension = spec.source_suffix
             workspace = TaskWorkspace.create(configured.temp_root)
             input_path = workspace.input_dir / safe_name
             size = await save_upload(
@@ -215,36 +255,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 configured,
             )
             output_name = f"{Path(safe_name).stem}{spec.target_suffix}"
-            outcome = "success"
-            return StreamingResponse(
-                stream_file(output_path, workspace),
+            response = StreamingResponse(
+                stream_file(
+                    output_path,
+                    workspace,
+                    cleanup_callback=release_resources,
+                ),
                 media_type=spec.media_type,
                 headers={
                     "Content-Disposition": content_disposition(output_name),
                 },
-                background=BackgroundTask(workspace.cleanup),
+                background=BackgroundTask(release_resources),
             )
+            await form.close()
+            form = None
+            outcome = "success"
+            return response
         except asyncio.CancelledError:
             outcome = "cancelled"
-            if workspace is not None:
-                await workspace.cleanup()
-            raise
-        except Exception:
-            if workspace is not None:
-                await workspace.cleanup()
             raise
         finally:
-            await form.close()
-            await limiter.release()
-            LOGGER.info(
-                "conversion_finished request_id=%s source_extension=%s "
-                "size_bytes=%d outcome=%s exit_code=%s duration_ms=%d",
-                request_id,
-                spec.source_suffix,
-                size,
-                outcome,
-                exit_code if exit_code is not None else "none",
-                int((time.monotonic() - started) * 1000),
-            )
+            if form is not None:
+                await form.close()
+            if outcome != "success":
+                await release_resources()
 
     return app

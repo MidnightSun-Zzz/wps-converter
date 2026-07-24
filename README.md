@@ -66,6 +66,22 @@ uv run python main.py
 uv run pytest
 ```
 
+如本地 `tests/docs/` 中存在被 Git 忽略的真实 `.wps` 或 `.et`
+样本，可运行可选 Docker 集成测试。脚本会构建生产镜像、启动临时容器、
+逐个调用 HTTP 接口、验证 OOXML 结构，然后自动删除转换件和容器：
+
+```bash
+uv run python scripts/test_real_samples.py
+```
+
+复用已经构建的镜像：
+
+```bash
+uv run python scripts/test_real_samples.py \
+  --skip-build \
+  --image wps-converter:local
+```
+
 ## Docker 部署
 
 镜像基于 Debian，安装 LibreOffice Writer、Calc、Noto CJK 和文泉驿中文字体，并以 UID/GID `10001` 的非 root 用户运行。
@@ -85,6 +101,8 @@ docker compose down
 ```
 
 Compose 默认监听宿主机 `8000` 端口。可通过 `CONVERTER_PORT` 修改宿主机端口。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
+
+生产环境仍建议在 Nginx、Ingress 或 API 网关设置请求体上限，阻止异常流量到达应用。例如应用上限为 10 MB 时，可将网关 multipart 请求体上限设置为 11 MB，为文件名和 multipart 头预留少量空间。应用自身会在流式解析期间按文件内容的精确字节数执行 10 MB 限制。
 
 直接构建和运行：
 

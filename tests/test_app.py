@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import io
 import json
 import time
@@ -12,6 +13,40 @@ import pytest
 
 from wps_converter.app import create_app
 from wps_converter.config import ConfigurationError, Settings
+
+app_module = importlib.import_module("wps_converter.app")
+
+
+class CountingMultipartStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.bytes_sent = 0
+
+    async def __aiter__(self):
+        for chunk in self.chunks:
+            self.bytes_sent += len(chunk)
+            yield chunk
+            await asyncio.sleep(0)
+
+
+class PausingMultipartStream(httpx.AsyncByteStream):
+    def __init__(
+        self,
+        first_chunk: bytes,
+        remaining_chunk: bytes,
+        parsing_started: asyncio.Event,
+        continue_upload: asyncio.Event,
+    ) -> None:
+        self.first_chunk = first_chunk
+        self.remaining_chunk = remaining_chunk
+        self.parsing_started = parsing_started
+        self.continue_upload = continue_upload
+
+    async def __aiter__(self):
+        yield self.first_chunk
+        self.parsing_started.set()
+        await self.continue_upload.wait()
+        yield self.remaining_chunk
 
 
 def make_settings(
@@ -257,6 +292,155 @@ async def test_empty_and_oversized_uploads_are_rejected_and_cleaned(
 
     assert_error(empty, 400, "INVALID_FILE")
     assert_error(oversized, 413, "FILE_TOO_LARGE")
+    assert list(task_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_file_limit_stops_request_stream_before_full_body_is_received(
+    fake_soffice: Path, tmp_path: Path
+) -> None:
+    boundary = "stream-limit-boundary"
+    prefix = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="large.wps"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    suffix = f"\r\n--{boundary}--\r\n".encode()
+    payload_size = 2 * 1024 * 1024
+    chunks = [prefix]
+    chunks.extend(
+        b"x" * min(64 * 1024, payload_size - offset)
+        for offset in range(0, payload_size, 64 * 1024)
+    )
+    chunks.append(suffix)
+    stream = CountingMultipartStream(chunks)
+    total_request_bytes = sum(len(chunk) for chunk in chunks)
+    settings = make_settings(
+        fake_soffice,
+        tmp_path / "tasks",
+        max_file_size_mb=1,
+    )
+
+    async with client_for(settings) as client:
+        response = await client.post(
+            "/api/v1/convert",
+            headers={
+                "X-API-Key": "test-secret",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            content=stream,
+        )
+
+    assert_error(response, 413, "FILE_TOO_LARGE")
+    assert stream.bytes_sent < total_request_bytes
+    assert stream.bytes_sent <= 1024 * 1024 + len(prefix) + 64 * 1024
+    assert not (tmp_path / "tasks").exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrency_is_acquired_before_multipart_body_is_consumed(
+    fake_soffice: Path, tmp_path: Path
+) -> None:
+    boundary = "paused-upload-boundary"
+    prefix = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="first.wps"\r\n'
+        "Content-Type: application/octet-stream\r\n\r\n"
+    ).encode()
+    remaining = b"VALID" + f"\r\n--{boundary}--\r\n".encode()
+    parsing_started = asyncio.Event()
+    continue_upload = asyncio.Event()
+    stream = PausingMultipartStream(
+        prefix,
+        remaining,
+        parsing_started,
+        continue_upload,
+    )
+    settings = make_settings(
+        fake_soffice,
+        tmp_path / "tasks",
+        max_concurrency=1,
+    )
+
+    async with client_for(settings) as client:
+        first_task = asyncio.create_task(
+            client.post(
+                "/api/v1/convert",
+                headers={
+                    "X-API-Key": "test-secret",
+                    "Content-Type": (
+                        f"multipart/form-data; boundary={boundary}"
+                    ),
+                },
+                content=stream,
+            )
+        )
+        await asyncio.wait_for(parsing_started.wait(), timeout=1)
+        second = await client.post(
+            "/api/v1/convert",
+            headers={"X-API-Key": "test-secret"},
+            files={"file": ("second.wps", b"VALID")},
+        )
+        continue_upload.set()
+        first = await asyncio.wait_for(first_task, timeout=3)
+
+    assert_error(second, 429, "CONCURRENCY_LIMIT")
+    assert first.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_concurrency_is_held_until_streaming_response_finishes(
+    fake_soffice: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream_started = asyncio.Event()
+    finish_stream = asyncio.Event()
+
+    async def slow_stream_file(
+        output_path: Path,
+        workspace,
+        cleanup_callback=None,
+    ):
+        payload = output_path.read_bytes()
+        try:
+            yield payload[:1]
+            stream_started.set()
+            await finish_stream.wait()
+            yield payload[1:]
+        finally:
+            if cleanup_callback is None:
+                await workspace.cleanup()
+            else:
+                await cleanup_callback()
+
+    monkeypatch.setattr(app_module, "stream_file", slow_stream_file)
+    task_root = tmp_path / "tasks"
+    settings = make_settings(
+        fake_soffice,
+        task_root,
+        max_concurrency=1,
+    )
+
+    async with client_for(settings) as client:
+        first_task = asyncio.create_task(
+            client.post(
+                "/api/v1/convert",
+                headers={"X-API-Key": "test-secret"},
+                files={"file": ("first.wps", b"VALID")},
+            )
+        )
+        await asyncio.wait_for(stream_started.wait(), timeout=2)
+        second = await client.post(
+            "/api/v1/convert",
+            headers={"X-API-Key": "test-secret"},
+            files={"file": ("second.wps", b"VALID")},
+        )
+        finish_stream.set()
+        first = await asyncio.wait_for(first_task, timeout=2)
+
+    assert_error(second, 429, "CONCURRENCY_LIMIT")
+    assert first.status_code == 200
     assert list(task_root.iterdir()) == []
 
 
