@@ -1,0 +1,33 @@
+services:
+  converter:
+    build:
+      context: .
+    image: wps-converter:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${CONVERTER_PORT:-8000}:8000"
+    environment:
+      CONVERTER_API_KEY: "${CONVERTER_API_KEY:?CONVERTER_API_KEY must be set}"
+      MAX_FILE_SIZE_MB: "${MAX_FILE_SIZE_MB:-10}"
+      MAX_CONCURRENCY: "${MAX_CONCURRENCY:-4}"
+      CONVERSION_TIMEOUT_SECONDS: "${CONVERSION_TIMEOUT_SECONDS:-120}"
+      SOFFICE_PATH: "${SOFFICE_PATH:-/usr/bin/soffice}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
