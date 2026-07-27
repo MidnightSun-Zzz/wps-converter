@@ -6,7 +6,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "${CONVERTER_PORT:-8028}:8000"
+      - "${CONVERTER_PORT:?CONVERTER_PORT must be set}:8000"
     environment:
       CONVERTER_API_KEY: "${CONVERTER_API_KEY:?CONVERTER_API_KEY must be set}"
       MAX_FILE_SIZE_MB: "${MAX_FILE_SIZE_MB:-10}"

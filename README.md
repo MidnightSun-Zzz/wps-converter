@@ -42,6 +42,7 @@
 | 环境变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `CONVERTER_API_KEY` | 是 | 无 | 转换接口密钥；空值会导致服务启动失败 |
+| `CONVERTER_PORT` | 是（Compose） | 无 | Docker Compose 映射到宿主机的监听端口 |
 | `MAX_FILE_SIZE_MB` | 否 | `10` | 单文件大小上限 |
 | `MAX_CONCURRENCY` | 否 | `4` | 同时处理的任务数；超限立即拒绝 |
 | `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单次转换超时 |
@@ -100,7 +101,7 @@ docker compose ps
 docker compose down
 ```
 
-Compose 默认监听宿主机 `8028` 端口。可通过 `CONVERTER_PORT` 修改宿主机端口。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
+Compose 通过 `.env` 中的 `CONVERTER_PORT` 配置宿主机监听端口；示例值为 `8028`，未配置时 Compose 会拒绝启动。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
 
 生产环境仍建议在 Nginx、Ingress 或 API 网关设置请求体上限，阻止异常流量到达应用。例如应用上限为 10 MB 时，可将网关 multipart 请求体上限设置为 11 MB，为文件名和 multipart 头预留少量空间。应用自身会在流式解析期间按文件内容的精确字节数执行 10 MB 限制。
 
