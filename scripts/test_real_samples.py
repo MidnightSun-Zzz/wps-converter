@@ -26,6 +26,14 @@ class ExpectedFormat:
 
 
 FORMATS = {
+    ".doc": ExpectedFormat(
+        target_suffix=".docx",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        required_member="word/document.xml",
+    ),
     ".wps": ExpectedFormat(
         target_suffix=".docx",
         media_type=(
@@ -130,7 +138,7 @@ def validate_conversion(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Optionally convert ignored tests/docs WPS/ET samples through "
+            "Optionally convert ignored tests/docs DOC/WPS/ET samples through "
             "the production Docker image."
         )
     )
@@ -152,7 +160,7 @@ def main() -> int:
         if path.is_file() and path.suffix.lower() in FORMATS
     ) if SAMPLE_DIR.is_dir() else []
     if not samples:
-        print("SKIP no .wps or .et files found under tests/docs")
+        print("SKIP no .doc, .wps, or .et files found under tests/docs")
         return 0
 
     if not arguments.skip_build:

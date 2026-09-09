@@ -13,6 +13,7 @@ arguments = sys.argv[1:]
 source = Path(arguments[-1])
 output_dir = Path(arguments[arguments.index("--outdir") + 1])
 target_format = arguments[arguments.index("--convert-to") + 1]
+target_extension = target_format.split(":", 1)[0]
 payload = source.read_bytes()
 
 if payload.startswith(b"SLEEP"):
@@ -22,7 +23,7 @@ if payload.startswith(b"FAIL"):
 if payload.startswith(b"NO_OUTPUT"):
     raise SystemExit(0)
 
-target = output_dir / f"{source.stem}.{target_format}"
+target = output_dir / f"{source.stem}.{target_extension}"
 if payload.startswith(b"EMPTY"):
     target.touch()
     raise SystemExit(0)
@@ -31,7 +32,9 @@ if payload.startswith(b"BADZIP"):
     raise SystemExit(0)
 
 required = (
-    "word/document.xml" if target_format == "docx" else "xl/workbook.xml"
+    "word/document.xml"
+    if target_extension == "docx"
+    else "xl/workbook.xml"
 )
 if payload.startswith(b"WRONG"):
     required = "wrong/member.xml"

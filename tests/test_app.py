@@ -208,6 +208,13 @@ async def test_unsupported_extension_is_rejected(
             ".docx",
         ),
         (
+            "旧版报告.doc",
+            "word/document.xml",
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document",
+            ".docx",
+        ),
+        (
             "数据.et",
             "xl/workbook.xml",
             "application/vnd.openxmlformats-officedocument."

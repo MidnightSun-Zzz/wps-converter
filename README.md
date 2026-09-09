@@ -1,26 +1,160 @@
 # WPS Converter
 
-无状态、同步的办公文档转换服务，通过 FastAPI 调用 LibreOffice：
+无状态的办公文档转换服务。服务通过 HTTP 接收文件，在 Docker 容器内调用
+LibreOffice 完成转换，然后直接返回转换后的文件。
 
-- `.wps` 转换为 `.docx`
-- `.et` 转换为 `.xlsx`
+LibreOffice 已经安装在镜像内，部署服务器只需要安装 Docker，不需要单独安装
+LibreOffice。
 
-调用方负责保存原件和转换件。本服务不连接数据库、对象存储或业务应用，也不保留任务文件。
+## 支持格式
 
-## 接口
+| 源文件 | 目标文件 |
+| --- | --- |
+| `.doc`（旧版 Word） | `.docx` |
+| `.wps` | `.docx` |
+| `.et` | `.xlsx` |
 
-### `POST /api/v1/convert`
+服务根据上传文件名的扩展名判断格式，不使用客户端 MIME 类型，也不接受调用方
+传入的 LibreOffice 参数。调用方应自行保存原文件和转换结果；本服务不连接数据库、
+对象存储或业务系统，也不持久化任务文件。
 
-使用 `multipart/form-data` 上传单个 `file`，并在 `X-API-Key` 中携带密钥。服务根据源文件扩展名选择固定目标格式，不接受 Filter、目标格式或其他 LibreOffice 参数。
+## 快速部署
 
-成功响应为文件流：
+### 1. 准备代码
 
-| 源文件 | 响应格式 | Content-Type |
+将当前代码复制或发布到服务器，例如：
+
+```bash
+git clone <repository-url> /opt/wps-converter
+cd /opt/wps-converter
+```
+
+如果使用当前 `.doc` 转换版本，请确保服务器上的代码包含该版本改动。
+
+### 2. 配置环境变量
+
+```bash
+cp .env.example .env
+openssl rand -hex 32
+```
+
+将生成的随机字符串填入 `.env` 的 `CONVERTER_API_KEY`：
+
+```dotenv
+CONVERTER_API_KEY=replace-with-a-long-random-secret
+CONVERTER_PORT=8028
+MAX_FILE_SIZE_MB=10
+MAX_CONCURRENCY=4
+CONVERSION_TIMEOUT_SECONDS=120
+SOFFICE_PATH=/usr/bin/soffice
+LOG_LEVEL=INFO
+```
+
+不要把 `.env` 提交到 Git，也不要在日志或接口响应中暴露 API Key。
+
+### 3. 构建并启动
+
+```bash
+docker compose config
+docker compose up -d --build
+docker compose ps
+```
+
+构建完成后，镜像中会包含以下运行时组件：
+
+- LibreOffice Writer：处理 `.doc`、`.wps` 到 `.docx`
+- LibreOffice Calc：处理 `.et` 到 `.xlsx`
+- Noto CJK 和文泉驿中文字体：减少中文字体缺失导致的排版问题
+
+查看日志：
+
+```bash
+docker compose logs -f converter
+```
+
+停止服务：
+
+```bash
+docker compose down
+```
+
+服务器如果无法访问 Debian 或 PyPI，不能直接在服务器执行 `--build`。可以在有
+网络的构建机上构建镜像，推送到镜像仓库后，再在服务器执行 `docker pull` 和
+`docker compose up -d`。
+
+## 健康检查
+
+```bash
+curl http://127.0.0.1:8028/health/live
+curl http://127.0.0.1:8028/health/ready
+```
+
+正常响应：
+
+```json
+{"status":"ready","soffice":true}
+```
+
+`/health/live` 只检查服务进程；`/health/ready` 还会检查容器内的 `soffice`
+是否存在且可执行。
+
+## 接口调用
+
+接口地址：
+
+```text
+POST /api/v1/convert
+Content-Type: multipart/form-data
+Header: X-API-Key
+Field: file
+```
+
+请求必须包含且只能包含一个名为 `file` 的文件字段。
+
+### `.doc` 转 `.docx`
+
+```bash
+curl --fail-with-body \
+  -H "X-API-Key: ${CONVERTER_API_KEY}" \
+  -F 'file=@./测试文档.doc' \
+  --output ./测试文档.docx \
+  http://127.0.0.1:8028/api/v1/convert
+```
+
+### `.wps` 转 `.docx`
+
+```bash
+curl --fail-with-body \
+  -H "X-API-Key: ${CONVERTER_API_KEY}" \
+  -F 'file=@./示例文档.wps' \
+  --output ./示例文档.docx \
+  http://127.0.0.1:8028/api/v1/convert
+```
+
+### `.et` 转 `.xlsx`
+
+```bash
+curl --fail-with-body \
+  -H "X-API-Key: ${CONVERTER_API_KEY}" \
+  -F 'file=@./数据.et' \
+  --output ./数据.xlsx \
+  http://127.0.0.1:8028/api/v1/convert
+```
+
+成功响应是文件流，并包含正确的 `Content-Type` 和下载文件名。所有响应都包含
+服务生成的 `X-Request-ID`。
+
+常见错误：
+
+| HTTP 状态码 | 错误码 | 含义 |
 | --- | --- | --- |
-| `.wps` | `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
-| `.et` | `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` |
+| `401` | `AUTH_FAILED` | `X-API-Key` 缺失或错误 |
+| `413` | `FILE_TOO_LARGE` | 文件超过大小限制 |
+| `415` | `UNSUPPORTED_FORMAT` | 文件扩展名不是 `.doc`、`.wps` 或 `.et` |
+| `429` | `CONCURRENCY_LIMIT` | 当前并发数已达到上限 |
+| `502` | `CONVERSION_FAILED` | LibreOffice 无法启动或转换失败 |
 
-失败响应示例：
+错误响应格式：
 
 ```json
 {
@@ -30,30 +164,26 @@
 }
 ```
 
-所有响应包含服务生成的 `X-Request-ID`。并发已满时返回 `429` 和 `Retry-After: 1`。
-
-### 健康检查
-
-- `GET /health/live`：进程存活检查，不认证。
-- `GET /health/ready`：检查 `soffice` 是否存在且可执行，不认证。
-
-## 配置
+## 配置项
 
 | 环境变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `CONVERTER_API_KEY` | 是 | 无 | 转换接口密钥；空值会导致服务启动失败 |
-| `CONVERTER_PORT` | 是（Compose） | 无 | Docker Compose 映射到宿主机的监听端口 |
-| `MAX_FILE_SIZE_MB` | 否 | `10` | 单文件大小上限 |
-| `MAX_CONCURRENCY` | 否 | `4` | 同时处理的任务数；超限立即拒绝 |
-| `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单次转换超时 |
-| `SOFFICE_PATH` | 否 | `soffice` | soffice 可执行文件名或路径 |
-| `LOG_LEVEL` | 否 | `INFO` | Python 日志级别 |
+| `CONVERTER_API_KEY` | 是 | 无 | 转换接口认证密钥 |
+| `CONVERTER_PORT` | Compose 必填 | 无 | 宿主机端口，容器端口固定为 `8000` |
+| `MAX_FILE_SIZE_MB` | 否 | `10` | 单个文件大小上限 |
+| `MAX_CONCURRENCY` | 否 | `4` | 同时执行的转换任务数 |
+| `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单个转换任务超时时间 |
+| `SOFFICE_PATH` | 否 | `soffice` | LibreOffice 可执行文件路径 |
+| `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
 
-所有数值配置必须是正整数。日志不会记录 API Key、文件内容或客户端文件名。
+所有数值配置必须是正整数。服务不会记录 API Key、文件内容或客户端文件名。
+
+Compose 默认使用只读根文件系统，并将临时文件放在大小为 512 MB 的 tmpfs 中。
+如果提高文件大小上限或并发数，应同步评估临时空间和内存。
 
 ## 本地开发
 
-需要 Python 3.13、[uv](https://docs.astral.sh/uv/) 和本机 LibreOffice：
+本地开发需要 Python 3.13、`uv` 和本机 LibreOffice：
 
 ```bash
 uv sync --dev
@@ -64,18 +194,23 @@ uv run python main.py
 运行测试：
 
 ```bash
-uv run pytest
+uv run python -m pytest
+uv run python -m compileall -q main.py src tests scripts
 ```
 
-如本地 `tests/docs/` 中存在被 Git 忽略的真实 `.wps` 或 `.et`
-样本，可运行可选 Docker 集成测试。脚本会构建生产镜像、启动临时容器、
-逐个调用 HTTP 接口、验证 OOXML 结构，然后自动删除转换件和容器：
+## 真实样本测试
+
+将脱敏的真实 `.doc`、`.wps` 或 `.et` 文件放入被 Git 忽略的 `tests/docs/` 目录，
+然后运行 Docker 集成测试：
 
 ```bash
 uv run python scripts/test_real_samples.py
 ```
 
-复用已经构建的镜像：
+脚本会构建生产镜像、启动临时容器、调用 HTTP 接口、检查返回的 OOXML 结构，
+最后自动删除测试容器和转换产物。
+
+复用已有镜像：
 
 ```bash
 uv run python scripts/test_real_samples.py \
@@ -83,125 +218,17 @@ uv run python scripts/test_real_samples.py \
   --image wps-converter:local
 ```
 
-## Docker 部署
+## 兼容性说明
 
-镜像基于 Debian，安装 LibreOffice Writer、Calc、Noto CJK 和文泉驿中文字体，并以 UID/GID `10001` 的非 root 用户运行。
+- `.doc` 使用旧版 Word 格式，复杂排版、页眉页脚、嵌入对象、宏、特殊字体等内容
+  可能出现版式差异。
+- 加密、损坏或 LibreOffice 无法识别的文件会转换失败。
+- `.doc` 的输出目标是标准 OOXML `.docx`，服务只有在输出文件结构有效时才返回成功。
+- 上线前应使用业务侧脱敏样本回归文字、图片、表格、分页、公式和字体效果。
 
-```bash
-cp .env.example .env
-# 修改 .env 中的 CONVERTER_API_KEY
-docker compose config
-docker compose up -d --build
-docker compose ps
-```
+## 生产建议
 
-停止服务：
-
-```bash
-docker compose down
-```
-
-Compose 通过 `.env` 中的 `CONVERTER_PORT` 配置宿主机监听端口；示例值为 `8028`，未配置时 Compose 会拒绝启动。容器使用只读根文件系统，任务目录位于受限的临时文件系统；如需处理接近上限的大文件或提高并发数，应同步评估并调整 `tmpfs` 容量。
-
-生产环境仍建议在 Nginx、Ingress 或 API 网关设置请求体上限，阻止异常流量到达应用。例如应用上限为 10 MB 时，可将网关 multipart 请求体上限设置为 11 MB，为文件名和 multipart 头预留少量空间。应用自身会在流式解析期间按文件内容的精确字节数执行 10 MB 限制。
-
-直接构建和运行：
-
-```bash
-docker build -t wps-converter:local .
-docker run --rm \
-  --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=512m \
-  -p 8028:8000 \
-  -e CONVERTER_API_KEY='replace-with-a-long-random-secret' \
-  wps-converter:local
-```
-
-## curl 调用
-
-转换 WPS 文件：
-
-```bash
-curl --fail-with-body \
-  -H 'X-API-Key: replace-with-a-long-random-secret' \
-  -F 'file=@./示例文档.wps' \
-  --output './示例文档.docx' \
-  http://127.0.0.1:8028/api/v1/convert
-```
-
-转换 ET 文件：
-
-```bash
-curl --fail-with-body \
-  -H 'X-API-Key: replace-with-a-long-random-secret' \
-  -F 'file=@./数据.et' \
-  --output './数据.xlsx' \
-  http://127.0.0.1:8028/api/v1/convert
-```
-
-检查健康状态：
-
-```bash
-curl http://127.0.0.1:8028/health/live
-curl http://127.0.0.1:8028/health/ready
-```
-
-## Java 17 调用示例
-
-以下示例使用 JDK 自带的 `HttpClient`，上传和下载均基于文件 BodyPublisher/BodyHandler，不需要把整个文档读入 Java 堆：
-
-```java
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.util.UUID;
-
-public class ConvertExample {
-    public static void main(String[] args) throws Exception {
-        Path source = Path.of("示例文档.wps");
-        Path target = Path.of("示例文档.docx");
-        String boundary = "----JavaBoundary" + UUID.randomUUID();
-
-        String prefix = "--" + boundary + "\r\n"
-                + "Content-Disposition: form-data; name=\"file\"; filename=\""
-                + source.getFileName() + "\"\r\n"
-                + "Content-Type: application/octet-stream\r\n\r\n";
-        String suffix = "\r\n--" + boundary + "--\r\n";
-
-        HttpRequest.BodyPublisher body = HttpRequest.BodyPublishers.concat(
-                HttpRequest.BodyPublishers.ofByteArray(
-                        prefix.getBytes(StandardCharsets.UTF_8)),
-                HttpRequest.BodyPublishers.ofFile(source),
-                HttpRequest.BodyPublishers.ofByteArray(
-                        suffix.getBytes(StandardCharsets.UTF_8)));
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://127.0.0.1:8028/api/v1/convert"))
-                .header("X-API-Key", "replace-with-a-long-random-secret")
-                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .POST(body)
-                .build();
-
-        HttpResponse<Path> response = HttpClient.newHttpClient().send(
-                request, HttpResponse.BodyHandlers.ofFile(target));
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException(
-                    "Conversion failed, HTTP " + response.statusCode());
-        }
-        System.out.println("Saved to " + response.body());
-    }
-}
-```
-
-生产调用方还应设置连接/请求超时、限制重试次数，并在非 200 响应时将错误体保存到单独位置，避免把 JSON 错误覆盖为目标文档。
-
-## 兼容性和安全边界
-
-- 实际转换能力取决于镜像内 LibreOffice 对具体 WPS/ET 版本的识别能力。
-- 加密或损坏的文件、含宏文件、特殊嵌入对象、罕见公式、缺失字体以及复杂排版可能转换失败或出现版式差异。
-- 服务仅在 LibreOffice 成功退出且产物为结构有效的 DOCX/XLSX 时返回成功；不会复制原文件冒充转换结果。
-- 服务不承诺支持所有 WPS Office 版本。上线前应使用业务侧脱敏样本对文字、表格、图片、页眉页脚、公式和分页效果进行回归。
-- 客户端 MIME 类型不参与格式判断；服务只允许固定源扩展名和固定目标格式。原件应由调用方留存。
+- 使用 Nginx、Ingress 或 API 网关提供 HTTPS，并限制请求体大小。
+- 不要将转换服务直接暴露到公网；调用方与转换服务尽量使用内网通信。
+- 调用方应设置连接和请求超时，并限制重试次数。
+- 调用方负责保存原文件和转换结果，服务本身不提供持久化存储。

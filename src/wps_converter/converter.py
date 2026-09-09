@@ -43,6 +43,16 @@ FORMAT_SPECS = {
         ),
         required_member="word/document.xml",
     ),
+    ".doc": FormatSpec(
+        source_suffix=".doc",
+        target_suffix=".docx",
+        convert_to="docx:Office Open XML Text",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+        required_member="word/document.xml",
+    ),
     ".et": FormatSpec(
         source_suffix=".et",
         target_suffix=".xlsx",
@@ -128,7 +138,7 @@ def sanitize_upload_name(filename: str | None) -> tuple[str, FormatSpec]:
         raise ServiceError(
             415,
             "UNSUPPORTED_FORMAT",
-            "Only .wps and .et files are supported",
+            "Only .doc, .wps, and .et files are supported",
         )
 
     stem = basename[: -len(suffix)]
