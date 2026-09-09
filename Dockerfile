@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN apt-get update \
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install --no-install-recommends -y \
         fontconfig \
         fonts-noto-cjk \
@@ -26,7 +27,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple .
 
 USER converter:converter
 
