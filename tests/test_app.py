@@ -221,6 +221,13 @@ async def test_unsupported_extension_is_rejected(
             "spreadsheetml.sheet",
             ".xlsx",
         ),
+        (
+            "旧版数据.xls",
+            "xl/workbook.xml",
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet",
+            ".xlsx",
+        ),
     ],
 )
 async def test_successful_conversion_response(

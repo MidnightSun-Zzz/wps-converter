@@ -12,6 +12,7 @@ LibreOffice。
 | --- | --- |
 | `.doc`（旧版 Word） | `.docx` |
 | `.wps` | `.docx` |
+| `.xls`（旧版 Excel） | `.xlsx` |
 | `.et` | `.xlsx` |
 
 服务根据上传文件名的扩展名判断格式，不使用客户端 MIME 类型，也不接受调用方
@@ -63,7 +64,7 @@ docker compose ps
 构建完成后，镜像中会包含以下运行时组件：
 
 - LibreOffice Writer：处理 `.doc`、`.wps` 到 `.docx`
-- LibreOffice Calc：处理 `.et` 到 `.xlsx`
+- LibreOffice Calc：处理 `.xls`、`.et` 到 `.xlsx`
 - Noto CJK 和文泉驿中文字体：减少中文字体缺失导致的排版问题
 
 查看日志：
@@ -141,6 +142,16 @@ curl --fail-with-body \
   http://127.0.0.1:8028/api/v1/convert
 ```
 
+### `.xls` 转 `.xlsx`
+
+```bash
+curl --fail-with-body \
+  -H "X-API-Key: ${CONVERTER_API_KEY}" \
+  -F 'file=@./旧版数据.xls' \
+  --output ./旧版数据.xlsx \
+  http://127.0.0.1:8028/api/v1/convert
+```
+
 成功响应是文件流，并包含正确的 `Content-Type` 和下载文件名。所有响应都包含
 服务生成的 `X-Request-ID`。
 
@@ -150,7 +161,7 @@ curl --fail-with-body \
 | --- | --- | --- |
 | `401` | `AUTH_FAILED` | `X-API-Key` 缺失或错误 |
 | `413` | `FILE_TOO_LARGE` | 文件超过大小限制 |
-| `415` | `UNSUPPORTED_FORMAT` | 文件扩展名不是 `.doc`、`.wps` 或 `.et` |
+| `415` | `UNSUPPORTED_FORMAT` | 文件扩展名不是 `.doc`、`.wps`、`.xls` 或 `.et` |
 | `429` | `CONCURRENCY_LIMIT` | 当前并发数已达到上限 |
 | `502` | `CONVERSION_FAILED` | LibreOffice 无法启动或转换失败 |
 
@@ -200,7 +211,7 @@ uv run python -m compileall -q main.py src tests scripts
 
 ## 真实样本测试
 
-将脱敏的真实 `.doc`、`.wps` 或 `.et` 文件放入被 Git 忽略的 `tests/docs/` 目录，
+将脱敏的真实 `.doc`、`.wps`、`.xls` 或 `.et` 文件放入被 Git 忽略的 `tests/docs/` 目录，
 然后运行 Docker 集成测试：
 
 ```bash
@@ -223,7 +234,8 @@ uv run python scripts/test_real_samples.py \
 - `.doc` 使用旧版 Word 格式，复杂排版、页眉页脚、嵌入对象、宏、特殊字体等内容
   可能出现版式差异。
 - 加密、损坏或 LibreOffice 无法识别的文件会转换失败。
-- `.doc` 的输出目标是标准 OOXML `.docx`，服务只有在输出文件结构有效时才返回成功。
+- `.doc` 和 `.xls` 的输出目标分别是标准 OOXML `.docx` 和 `.xlsx`，服务只有在
+  输出文件结构有效时才返回成功。
 - 上线前应使用业务侧脱敏样本回归文字、图片、表格、分页、公式和字体效果。
 
 ## 生产建议

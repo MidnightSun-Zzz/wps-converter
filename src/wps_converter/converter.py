@@ -63,6 +63,16 @@ FORMAT_SPECS = {
         ),
         required_member="xl/workbook.xml",
     ),
+    ".xls": FormatSpec(
+        source_suffix=".xls",
+        target_suffix=".xlsx",
+        convert_to="xlsx",
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        required_member="xl/workbook.xml",
+    ),
 }
 
 
@@ -138,7 +148,7 @@ def sanitize_upload_name(filename: str | None) -> tuple[str, FormatSpec]:
         raise ServiceError(
             415,
             "UNSUPPORTED_FORMAT",
-            "Only .doc, .wps, and .et files are supported",
+            "Only .doc, .wps, .xls, and .et files are supported",
         )
 
     stem = basename[: -len(suffix)]

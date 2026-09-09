@@ -1,7 +1,7 @@
 [project]
 name = "wps-converter"
 version = "0.1.0"
-description = "Stateless WPS and ET document conversion service"
+description = "Stateless office document conversion service"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
