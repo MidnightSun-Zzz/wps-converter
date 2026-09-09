@@ -22,3 +22,5 @@ samples/
 converted/
 /tests/docs/
 AGENTS.md
+output/
+.DS_Store
