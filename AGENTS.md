@@ -1,42 +1,32 @@
 # Repository Guidelines
 
-跨项目协作见仓库根目录 `../AGENTS.md`。
+跨仓库关系与 Git 授权边界见 `../AGENTS.md`；部署或运行配置任务再查 `README.md`。
 
-## Project Structure & Module Organization
+## 项目与源码导航
 
-This repository is currently a small Python 3.13 application:
+Python 3.13 / FastAPI 无状态文档转换服务，调用 LibreOffice 将 `.doc`、`.wps` 转为 `.docx`，将 `.xls`、`.et` 转为 `.xlsx`。
 
-- `main.py` contains the executable entry point.
-- `pyproject.toml` defines project metadata, the supported Python version, and dependencies.
-- `README.md` is reserved for user-facing setup and usage documentation.
-- `.python-version` pins Python 3.13 for compatible environment managers.
+- `main.py`：uvicorn 启动入口。
+- `src/wps_converter/app.py`、`multipart.py`：HTTP 请求和上传处理。
+- `src/wps_converter/converter.py`：转换执行及临时文件处理；`config.py`、`errors.py`：配置与错误定义。
+- `tests/`：pytest 测试，`tests/fixtures/fake_soffice.py` 用于模拟转换器；真实样本检查见 `scripts/test_real_samples.py`。
+- 依赖与工具配置以 `pyproject.toml` 为准；沿用现有目录和测试体系，不为未来需求新增分层。
 
-As the converter grows, place importable code under `src/wps_converter/` and tests under `tests/`, mirroring source modules (for example, `src/wps_converter/parser.py` and `tests/test_parser.py`). Keep generated documents and local fixtures out of the repository unless they are small, sanitized test assets.
+## 开发与验证
 
-## Build, Test, and Development Commands
+- 依赖缺失或锁文件变化时执行 `uv sync`，不在每次任务前重复安装。
+- 按需用 `uv run python main.py` 启动服务；局部改动运行 `uv run pytest tests/test_app.py` 或 `uv run pytest tests/test_converter.py` 等相关用例。
+- 仅转换行为或 LibreOffice 集成变化需要真实样本验证；缺少对应环境时说明边界，不自动部署或修改共享服务。
+- 缺少关键覆盖时补最小回归测试；通过后停止。纯文档修改只检查内容和 `git diff --check`，不要求启动、构建或新增测试工具。
+- 使用临时目录处理测试输出，不提交生成文档、缓存、`.venv/` 或含敏感信息的样本。
 
-Use `uv` for environment and dependency management:
+## 业务与安全边界
 
-- `uv sync` creates or updates `.venv` from `pyproject.toml`.
-- `uv run python main.py` runs the current application.
-- `uv run python -m compileall main.py` performs a quick syntax check.
-- `uv run pytest` runs the test suite after `pytest` is added as a development dependency.
-- `uv build` builds distribution artifacts once a packaging layout and build system are configured.
+- 服务不持久化业务文件或任务，不连接平台数据库或对象存储；调用方负责保存原件和转换结果。
+- 保留鉴权、格式及大小校验、并发限制、超时和失败清理；不允许调用方传入任意 LibreOffice 参数。
+- 密钥通过运行时配置注入，不写入代码、日志或 Git。
+- 接口、支持格式、认证或错误语义变化时检查 Java 调用方兼容性，仅更新受影响实现与文档。
 
-Add runtime dependencies with `uv add <package>` and development tools with `uv add --dev <package>`. Do not commit `.venv/`, caches, or build output.
+## 代码与交付
 
-## Coding Style & Naming Conventions
-
-Follow PEP 8 with four-space indentation and type hints on public functions. Use `snake_case` for modules, functions, and variables; `PascalCase` for classes; and `UPPER_SNAKE_CASE` for constants. Keep file-conversion logic separate from CLI or WPS integration code. Prefer small functions with explicit inputs and outputs.
-
-When Ruff is configured, run `uv run ruff check .` and `uv run ruff format --check .` before submitting changes.
-
-## Testing Guidelines
-
-Use `pytest` and name files `test_<module>.py` and tests `test_<behavior>()`. Cover successful conversions, unsupported formats, malformed input, Unicode filenames, and cleanup after failures. Use temporary directories rather than writing generated files into the repository. Every bug fix should include a regression test.
-
-## Commit & Pull Request Guidelines
-
-The repository has no commit history yet. Use concise, imperative commit subjects, optionally following Conventional Commits, such as `feat: add DOCX conversion` or `fix: preserve output filename`.
-
-Pull requests should explain the user-visible change, list verification commands, and link relevant issues. Include sanitized sample input/output details for conversion changes and screenshots only when UI behavior changes. Keep each pull request focused and document any new configuration or dependency.
+沿用 PEP 8、四空格缩进和现有类型标注惯例。提交遵循全局 Conventional Commits 与授权规则；说明实际改动、相关验证及未验证边界，不附带无关重构。
