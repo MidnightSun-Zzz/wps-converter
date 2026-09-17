@@ -79,9 +79,10 @@ docker compose logs -f converter
 docker compose down
 ```
 
-服务器如果无法访问 Debian 或 PyPI，不能直接在服务器执行 `--build`。可以在有
-网络的构建机上构建镜像，推送到镜像仓库后，再在服务器执行 `docker pull` 和
-`docker compose up -d`。
+首次构建或依赖、系统软件包层发生变化时，需要访问 Debian、PyPI 和 Docker 基础镜像。
+如果服务器无法访问这些源，可以在有网络的准备阶段完成首次构建，或准备对应的本地
+镜像和依赖缓存。需要在无互联网环境中频繁更新代码时，请参阅
+[`docs/offline-deployment.md`](docs/offline-deployment.md)。
 
 ## 健康检查
 

@@ -2,6 +2,9 @@ services:
   converter:
     build:
       context: .
+      pull: false
+      args:
+        UV_OFFLINE: "${UV_OFFLINE:-0}"
     image: wps-converter:local
     init: true
     restart: unless-stopped

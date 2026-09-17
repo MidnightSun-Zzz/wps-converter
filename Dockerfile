@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:0.9.12 AS uv
+
 FROM python:3.13-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -25,9 +27,24 @@ RUN groupadd --gid 10001 converter \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
+COPY --from=uv /uv /usr/local/bin/uv
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+    VIRTUAL_ENV=/opt/venv \
+    UV_LINK_MODE=copy \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app/src
+
+COPY pyproject.toml uv.lock README.md ./
+ARG UV_OFFLINE=0
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    if [ "$UV_OFFLINE" = "1" ]; then \
+        uv sync --locked --offline --no-dev --no-install-project; \
+    else \
+        uv sync --locked --no-dev --no-install-project; \
+    fi
+
 COPY src ./src
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple .
 
 USER converter:converter
 
