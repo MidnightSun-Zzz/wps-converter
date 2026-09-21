@@ -24,3 +24,4 @@ converted/
 AGENTS.md
 output/
 .DS_Store
+.codegraph
