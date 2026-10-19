@@ -541,6 +541,14 @@ async def test_concurrency_limit_rejects_without_waiting(
     assert_error(first, 504, "CONVERSION_TIMEOUT")
 
 
+def test_default_file_size_is_fifty_megabytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CONVERTER_API_KEY", "test-secret")
+    monkeypatch.delenv("MAX_FILE_SIZE_MB", raising=False)
+
+    assert Settings(api_key="test-secret").max_file_size_bytes == 50 * 1024 * 1024
+    assert Settings.from_env().max_file_size_bytes == 50 * 1024 * 1024
+
+
 def test_missing_api_key_fails_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CONVERTER_API_KEY", raising=False)
     with pytest.raises(ConfigurationError, match="CONVERTER_API_KEY"):

@@ -25,7 +25,7 @@ def _positive_int(name: str, default: int) -> int:
 @dataclass(frozen=True, slots=True)
 class Settings:
     api_key: str
-    max_file_size_mb: int = 10
+    max_file_size_mb: int = 50
     max_concurrency: int = 4
     conversion_timeout_seconds: int = 120
     soffice_path: str = "soffice"
@@ -63,7 +63,7 @@ class Settings:
 
         return cls(
             api_key=api_key,
-            max_file_size_mb=_positive_int("MAX_FILE_SIZE_MB", 10),
+            max_file_size_mb=_positive_int("MAX_FILE_SIZE_MB", 50),
             max_concurrency=_positive_int("MAX_CONCURRENCY", 4),
             conversion_timeout_seconds=_positive_int(
                 "CONVERSION_TIMEOUT_SECONDS", 120

@@ -44,7 +44,7 @@ openssl rand -hex 32
 ```dotenv
 CONVERTER_API_KEY=replace-with-a-long-random-secret
 CONVERTER_PORT=8028
-MAX_FILE_SIZE_MB=10
+MAX_FILE_SIZE_MB=50
 MAX_CONCURRENCY=4
 CONVERSION_TIMEOUT_SECONDS=120
 SOFFICE_PATH=/usr/bin/soffice
@@ -182,7 +182,7 @@ curl --fail-with-body \
 | --- | --- | --- | --- |
 | `CONVERTER_API_KEY` | 是 | 无 | 转换接口认证密钥 |
 | `CONVERTER_PORT` | Compose 必填 | 无 | 宿主机端口，容器端口固定为 `8000` |
-| `MAX_FILE_SIZE_MB` | 否 | `10` | 单个文件大小上限 |
+| `MAX_FILE_SIZE_MB` | 否 | `50` | 单个文件大小上限 |
 | `MAX_CONCURRENCY` | 否 | `4` | 同时执行的转换任务数 |
 | `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单个转换任务超时时间 |
 | `SOFFICE_PATH` | 否 | `soffice` | LibreOffice 可执行文件路径 |
