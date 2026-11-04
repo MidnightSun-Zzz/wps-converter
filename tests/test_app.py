@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from pypdf import PdfReader
 
 from wps_converter.app import create_app
 from wps_converter.config import ConfigurationError, Settings
@@ -63,6 +64,7 @@ def make_settings(
         max_concurrency=max_concurrency,
         conversion_timeout_seconds=timeout,
         soffice_path=str(fake_soffice),
+        ofd_converter_path=str(fake_soffice.with_name("fake-ofd2pdf")),
         log_level="INFO",
         temp_root=task_root,
     )
@@ -93,16 +95,23 @@ async def test_health_checks_are_public(fake_soffice: Path, tmp_path: Path) -> N
     assert live.status_code == 200
     assert live.json() == {"status": "ok"}
     assert ready.status_code == 200
-    assert ready.json() == {"status": "ready", "soffice": True}
+    assert ready.json() == {
+        "status": "ready",
+        "soffice": True,
+        "ofdConverter": True,
+    }
     assert live.headers["X-Request-ID"]
     assert ready.headers["X-Request-ID"]
 
 
 @pytest.mark.asyncio
-async def test_readiness_fails_for_missing_soffice(tmp_path: Path) -> None:
+async def test_readiness_fails_for_missing_soffice(
+    fake_soffice: Path, tmp_path: Path
+) -> None:
     settings = Settings(
         api_key="test-secret",
         soffice_path=str(tmp_path / "missing-soffice"),
+        ofd_converter_path=str(fake_soffice.with_name("fake-ofd2pdf")),
         temp_root=tmp_path / "tasks",
     )
     async with client_for(settings) as client:
@@ -110,6 +119,26 @@ async def test_readiness_fails_for_missing_soffice(tmp_path: Path) -> None:
 
     assert response.status_code == 503
     assert response.json()["soffice"] is False
+    assert response.json()["ofdConverter"] is True
+    assert response.json()["requestId"] == response.headers["X-Request-ID"]
+
+
+@pytest.mark.asyncio
+async def test_readiness_fails_for_missing_ofd_converter(
+    fake_soffice: Path, tmp_path: Path
+) -> None:
+    settings = Settings(
+        api_key="test-secret",
+        soffice_path=str(fake_soffice),
+        ofd_converter_path=str(tmp_path / "missing-ofd2pdf"),
+        temp_root=tmp_path / "tasks",
+    )
+    async with client_for(settings) as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["soffice"] is True
+    assert response.json()["ofdConverter"] is False
     assert response.json()["requestId"] == response.headers["X-Request-ID"]
 
 
@@ -264,6 +293,70 @@ async def test_successful_conversion_response(
         assert environment["cache"].endswith("/profile/cache")
         assert environment["config"].endswith("/profile/config")
         assert environment["tmp"].endswith("/tmp")
+    assert list(task_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_successful_ofd_conversion_response(
+    fake_soffice: Path, tmp_path: Path
+) -> None:
+    task_root = tmp_path / "tasks"
+    settings = make_settings(fake_soffice, task_root)
+    async with client_for(settings) as client:
+        response = await client.post(
+            "/api/v1/convert",
+            headers={"X-API-Key": "test-secret"},
+            files={
+                "file": (
+                    "对外投资管理办法.ofd",
+                    b"VALID",
+                    "application/x-untrusted",
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    disposition = response.headers["content-disposition"]
+    assert "filename*=UTF-8''" in disposition
+    assert ".pdf" in disposition
+
+    reader = PdfReader(io.BytesIO(response.content))
+    assert len(reader.pages) == 1
+    assert reader.metadata is not None
+    assert reader.metadata["/Producer"] == "fake-ofd2pdf"
+    invocation = json.loads(reader.metadata["/Subject"])
+    assert invocation["arguments"][0].endswith(".ofd")
+    assert invocation["arguments"][1].endswith(".pdf")
+    environment = invocation["environment"]
+    assert environment["has_api_key"] is False
+    assert environment["home"].endswith("/profile/home")
+    assert environment["cache"].endswith("/profile/cache")
+    assert environment["config"].endswith("/profile/config")
+    assert environment["tmp"].endswith("/tmp")
+    assert list(task_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [b"FAIL", b"NO_OUTPUT", b"EMPTY", b"BADPDF", b"TRUNCATED"],
+)
+async def test_ofd_conversion_failures_are_explicit_and_cleaned(
+    fake_soffice: Path,
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    task_root = tmp_path / "tasks"
+    settings = make_settings(fake_soffice, task_root)
+    async with client_for(settings) as client:
+        response = await client.post(
+            "/api/v1/convert",
+            headers={"X-API-Key": "test-secret"},
+            files={"file": ("document.ofd", payload)},
+        )
+
+    assert_error(response, 502, "CONVERSION_FAILED")
     assert list(task_root.iterdir()) == []
 
 

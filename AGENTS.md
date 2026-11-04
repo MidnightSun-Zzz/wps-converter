@@ -4,12 +4,13 @@
 
 ## 项目与源码导航
 
-Python 3.13 / FastAPI 无状态文档转换服务，调用 LibreOffice 将 `.doc`、`.wps` 转为 `.docx`，将 `.xls`、`.et` 转为 `.xlsx`。
+Python 3.13 / FastAPI 无状态文档转换服务，调用 LibreOffice 将 `.doc`、`.wps` 转为 `.docx`，将 `.xls`、`.et` 转为 `.xlsx`；调用 OFDRW（毕昇 JDK）将 `.ofd` 转为 `.pdf`。
 
 - `main.py`：uvicorn 启动入口。
 - `src/wps_converter/app.py`、`multipart.py`：HTTP 请求和上传处理。
 - `src/wps_converter/converter.py`：转换执行及临时文件处理；`config.py`、`errors.py`：配置与错误定义。
-- `tests/`：pytest 测试，`tests/fixtures/fake_soffice.py` 用于模拟转换器；真实样本检查见 `scripts/test_real_samples.py`。
+- `ofd-converter/`：基于 OFDRW 的 OFD 转 PDF Java CLI；`docker/`：`ofd2pdf` 包装脚本和公文字体映射。
+- `tests/`：pytest 测试，`tests/fixtures/fake_soffice.py`、`fake_ofd2pdf.py` 用于模拟转换器；真实样本检查见 `scripts/test_real_samples.py`。
 - 依赖与工具配置以 `pyproject.toml` 为准；沿用现有目录和测试体系，不为未来需求新增分层。
 
 ## 开发与验证

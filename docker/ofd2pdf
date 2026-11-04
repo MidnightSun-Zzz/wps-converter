@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+exec /opt/bisheng-jre/bin/java \
+    -Djava.awt.headless=true \
+    -Djava.io.tmpdir="${TMPDIR:-/tmp}" \
+    -XX:+UseSerialGC \
+    -Xms16m \
+    -Xmx512m \
+    -jar /opt/ofd2pdf/ofd2pdf.jar "$@"

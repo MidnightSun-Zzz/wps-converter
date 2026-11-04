@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pypdf import PdfWriter
 
 from wps_converter.converter import (
     FORMAT_SPECS,
@@ -11,6 +12,7 @@ from wps_converter.converter import (
     sanitize_upload_name,
     stream_file,
     validate_ooxml_output,
+    validate_pdf_output,
 )
 from wps_converter.errors import ServiceError
 
@@ -30,6 +32,36 @@ def test_sanitize_upload_name_rejects_invalid_names(filename: str | None) -> Non
 def test_validate_ooxml_rejects_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ServiceError) as error:
         validate_ooxml_output(tmp_path / "missing.docx", FORMAT_SPECS[".wps"])
+    assert error.value.code == "CONVERSION_FAILED"
+
+
+def test_validate_pdf_output_accepts_a_readable_pdf(tmp_path: Path) -> None:
+    output = tmp_path / "converted.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=595, height=842)
+    with output.open("wb") as pdf:
+        writer.write(pdf)
+
+    validate_pdf_output(output)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"",
+        b"not a pdf",
+        b"%PDF-1.4\n1 0 obj\n",
+        b"%PDF-1.4\n%%EOF",
+    ],
+)
+def test_validate_pdf_output_rejects_invalid_files(
+    tmp_path: Path, payload: bytes
+) -> None:
+    output = tmp_path / "converted.pdf"
+    output.write_bytes(payload)
+
+    with pytest.raises(ServiceError) as error:
+        validate_pdf_output(output)
     assert error.value.code == "CONVERSION_FAILED"
 
 

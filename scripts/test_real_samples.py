@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_DIR = ROOT / "tests" / "docs"
@@ -57,6 +58,11 @@ FORMATS = {
             "spreadsheetml.sheet"
         ),
         required_member="xl/workbook.xml",
+    ),
+    ".ofd": ExpectedFormat(
+        target_suffix=".pdf",
+        media_type="application/pdf",
+        required_member="",
     ),
 }
 
@@ -125,18 +131,28 @@ def validate_conversion(
 
     if output_path.stat().st_size == 0:
         raise RuntimeError(f"{sample.name}: conversion output is empty")
-    with zipfile.ZipFile(output_path) as archive:
-        members = set(archive.namelist())
-        if (
-            "[Content_Types].xml" not in members
-            or expected.required_member not in members
-        ):
-            raise RuntimeError(f"{sample.name}: invalid OOXML structure")
-        corrupt_member = archive.testzip()
-        if corrupt_member is not None:
-            raise RuntimeError(
-                f"{sample.name}: corrupt OOXML member {corrupt_member}"
-            )
+    if sample.suffix.lower() == ".ofd":
+        if output_path.read_bytes()[:5] != b"%PDF-":
+            raise RuntimeError(f"{sample.name}: output is not a PDF document")
+        reader = PdfReader(str(output_path))
+        if len(reader.pages) == 0:
+            raise RuntimeError(f"{sample.name}: PDF has no pages")
+        text = "".join(page.extract_text() or "" for page in reader.pages)
+        if not text.strip():
+            raise RuntimeError(f"{sample.name}: PDF has no extractable text")
+    else:
+        with zipfile.ZipFile(output_path) as archive:
+            members = set(archive.namelist())
+            if (
+                "[Content_Types].xml" not in members
+                or expected.required_member not in members
+            ):
+                raise RuntimeError(f"{sample.name}: invalid OOXML structure")
+            corrupt_member = archive.testzip()
+            if corrupt_member is not None:
+                raise RuntimeError(
+                    f"{sample.name}: corrupt OOXML member {corrupt_member}"
+                )
     print(
         f"PASS {sample.name} -> {output_name} "
         f"({output_path.stat().st_size} bytes)"
@@ -147,7 +163,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Optionally convert ignored tests/docs "
-            "DOC/WPS/XLS/ET samples through "
+            "DOC/WPS/XLS/ET/OFD samples through "
             "the production Docker image."
         )
     )
@@ -169,7 +185,10 @@ def main() -> int:
         if path.is_file() and path.suffix.lower() in FORMATS
     ) if SAMPLE_DIR.is_dir() else []
     if not samples:
-        print("SKIP no .doc, .wps, .xls, or .et files found under tests/docs")
+        print(
+            "SKIP no .doc, .wps, .xls, .et, or .ofd files found "
+            "under tests/docs"
+        )
         return 0
 
     if not arguments.skip_build:

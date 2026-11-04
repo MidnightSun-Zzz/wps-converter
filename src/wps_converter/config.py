@@ -29,6 +29,7 @@ class Settings:
     max_concurrency: int = 4
     conversion_timeout_seconds: int = 120
     soffice_path: str = "soffice"
+    ofd_converter_path: str = "ofd2pdf"
     log_level: str = "INFO"
     temp_root: Path | None = None
 
@@ -37,7 +38,14 @@ class Settings:
         return self.max_file_size_mb * 1024 * 1024
 
     def resolve_soffice(self) -> str | None:
-        resolved = shutil.which(self.soffice_path)
+        return self._resolve_executable(self.soffice_path)
+
+    def resolve_ofd_converter(self) -> str | None:
+        return self._resolve_executable(self.ofd_converter_path)
+
+    @staticmethod
+    def _resolve_executable(command: str) -> str | None:
+        resolved = shutil.which(command)
         if resolved is None:
             return None
         path = Path(resolved)
@@ -57,6 +65,10 @@ class Settings:
         if not soffice_path:
             raise ConfigurationError("SOFFICE_PATH must not be empty")
 
+        ofd_converter_path = os.getenv("OFD_CONVERTER_PATH", "ofd2pdf").strip()
+        if not ofd_converter_path:
+            raise ConfigurationError("OFD_CONVERTER_PATH must not be empty")
+
         log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
         if log_level not in logging.getLevelNamesMapping():
             raise ConfigurationError(f"Unsupported LOG_LEVEL: {log_level}")
@@ -69,5 +81,6 @@ class Settings:
                 "CONVERSION_TIMEOUT_SECONDS", 120
             ),
             soffice_path=soffice_path,
+            ofd_converter_path=ofd_converter_path,
             log_level=log_level,
         )

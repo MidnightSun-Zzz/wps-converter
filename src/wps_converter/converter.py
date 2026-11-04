@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import aiofiles
 from fastapi import UploadFile
+from pypdf import PdfReader
 
 from wps_converter.config import Settings
 from wps_converter.errors import ServiceError
@@ -30,6 +31,7 @@ class FormatSpec:
     convert_to: str
     media_type: str
     required_member: str
+    engine: str = "soffice"
 
 
 FORMAT_SPECS = {
@@ -72,6 +74,14 @@ FORMAT_SPECS = {
             "spreadsheetml.sheet"
         ),
         required_member="xl/workbook.xml",
+    ),
+    ".ofd": FormatSpec(
+        source_suffix=".ofd",
+        target_suffix=".pdf",
+        convert_to="",
+        media_type="application/pdf",
+        required_member="",
+        engine="ofd",
     ),
 }
 
@@ -148,7 +158,7 @@ def sanitize_upload_name(filename: str | None) -> tuple[str, FormatSpec]:
         raise ServiceError(
             415,
             "UNSUPPORTED_FORMAT",
-            "Only .doc, .wps, .xls, and .et files are supported",
+            "Only .doc, .wps, .xls, .et, and .ofd files are supported",
         )
 
     stem = basename[: -len(suffix)]
@@ -235,20 +245,29 @@ async def run_conversion(
             "TMPDIR": str(process_tmp),
         }
     )
-    command = (
-        settings.soffice_path,
-        "--headless",
-        "--nologo",
-        "--nodefault",
-        "--nolockcheck",
-        "--nofirststartwizard",
-        f"-env:UserInstallation={workspace.profile_dir.resolve().as_uri()}",
-        "--convert-to",
-        spec.convert_to,
-        "--outdir",
-        str(workspace.output_dir),
-        str(input_path),
-    )
+    if spec.engine == "ofd":
+        command = (
+            settings.ofd_converter_path,
+            str(input_path),
+            str(expected_output),
+        )
+        engine_name = "OFD converter"
+    else:
+        command = (
+            settings.soffice_path,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nolockcheck",
+            "--nofirststartwizard",
+            f"-env:UserInstallation={workspace.profile_dir.resolve().as_uri()}",
+            "--convert-to",
+            spec.convert_to,
+            "--outdir",
+            str(workspace.output_dir),
+            str(input_path),
+        )
+        engine_name = "LibreOffice"
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -262,7 +281,7 @@ async def run_conversion(
         raise ServiceError(
             502,
             "CONVERSION_FAILED",
-            "LibreOffice could not be started",
+            f"{engine_name} could not be started",
         ) from exc
 
     try:
@@ -284,10 +303,64 @@ async def run_conversion(
         raise ServiceError(
             502,
             "CONVERSION_FAILED",
-            "LibreOffice could not recognize or convert this document",
+            f"{engine_name} could not recognize or convert this document",
         )
-    await asyncio.to_thread(validate_ooxml_output, expected_output, spec)
+    await asyncio.to_thread(validate_output, expected_output, spec)
     return expected_output, exit_code
+
+
+def validate_output(output_path: Path, spec: FormatSpec) -> None:
+    if spec.engine == "ofd":
+        validate_pdf_output(output_path)
+        return
+    validate_ooxml_output(output_path, spec)
+
+
+def validate_pdf_output(output_path: Path) -> None:
+    try:
+        file_stat = output_path.stat()
+    except FileNotFoundError as exc:
+        raise ServiceError(
+            502,
+            "CONVERSION_FAILED",
+            "The OFD converter did not produce a conversion result",
+        ) from exc
+    if not output_path.is_file() or file_stat.st_size < 8:
+        raise ServiceError(
+            502,
+            "CONVERSION_FAILED",
+            "The OFD converter produced an empty or invalid conversion result",
+        )
+    try:
+        with output_path.open("rb") as pdf:
+            if pdf.read(5) != b"%PDF-":
+                raise ServiceError(
+                    502,
+                    "CONVERSION_FAILED",
+                    "The OFD converter produced a file with an unexpected format",
+                )
+            pdf.seek(max(0, file_stat.st_size - 2048))
+            if b"%%EOF" not in pdf.read():
+                raise ServiceError(
+                    502,
+                    "CONVERSION_FAILED",
+                    "The OFD converter produced a truncated PDF document",
+                )
+            pdf.seek(0)
+            if len(PdfReader(pdf).pages) == 0:
+                raise ServiceError(
+                    502,
+                    "CONVERSION_FAILED",
+                    "The OFD converter produced a PDF document without pages",
+                )
+    except ServiceError:
+        raise
+    except Exception as exc:
+        raise ServiceError(
+            502,
+            "CONVERSION_FAILED",
+            "The OFD converter produced an invalid PDF document",
+        ) from exc
 
 
 def validate_ooxml_output(output_path: Path, spec: FormatSpec) -> None:

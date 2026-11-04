@@ -59,7 +59,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         LOGGER.info(
-            "service_started max_file_size_mb=%d max_concurrency=%d timeout_seconds=%d",
+            "service_started max_file_size_mb=%d max_concurrency=%d "
+            "timeout_seconds=%d",
             configured.max_file_size_mb,
             configured.max_concurrency,
             configured.conversion_timeout_seconds,
@@ -141,16 +142,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health/ready")
     async def ready(request: Request):
-        if configured.resolve_soffice() is None:
+        soffice = configured.resolve_soffice() is not None
+        ofd_converter = configured.resolve_ofd_converter() is not None
+        if not soffice or not ofd_converter:
             return JSONResponse(
                 status_code=503,
                 content={
                     "status": "not_ready",
-                    "soffice": False,
+                    "soffice": soffice,
+                    "ofdConverter": ofd_converter,
                     "requestId": _request_id(request),
                 },
             )
-        return {"status": "ready", "soffice": True}
+        return {
+            "status": "ready",
+            "soffice": True,
+            "ofdConverter": True,
+        }
 
     @app.post("/api/v1/convert", dependencies=[Depends(authenticate)])
     async def convert(request: Request) -> StreamingResponse:

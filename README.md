@@ -1,10 +1,11 @@
 # WPS Converter
 
 无状态的办公文档转换服务。服务通过 HTTP 接收文件，在 Docker 容器内调用
-LibreOffice 完成转换，然后直接返回转换后的文件。
+LibreOffice（Office 格式）或 OFDRW（OFD 格式）完成转换，然后直接返回转换后的
+文件。
 
-LibreOffice 已经安装在镜像内，部署服务器只需要安装 Docker，不需要单独安装
-LibreOffice。
+LibreOffice、毕昇 JDK 运行时和 OFD 转换器都已经安装在镜像内，部署服务器只需要
+安装 Docker，不需要单独安装这些运行时。
 
 ## 支持格式
 
@@ -14,6 +15,7 @@ LibreOffice。
 | `.wps` | `.docx` |
 | `.xls`（旧版 Excel） | `.xlsx` |
 | `.et` | `.xlsx` |
+| `.ofd`（版式文档） | `.pdf` |
 
 服务根据上传文件名的扩展名判断格式，不使用客户端 MIME 类型，也不接受调用方
 传入的 LibreOffice 参数。调用方应自行保存原文件和转换结果；本服务不连接数据库、
@@ -48,6 +50,7 @@ MAX_FILE_SIZE_MB=50
 MAX_CONCURRENCY=4
 CONVERSION_TIMEOUT_SECONDS=120
 SOFFICE_PATH=/usr/bin/soffice
+OFD_CONVERTER_PATH=ofd2pdf
 LOG_LEVEL=INFO
 ```
 
@@ -65,7 +68,8 @@ docker compose ps
 
 - LibreOffice Writer：处理 `.doc`、`.wps` 到 `.docx`
 - LibreOffice Calc：处理 `.xls`、`.et` 到 `.xlsx`
-- Noto CJK 和文泉驿中文字体：减少中文字体缺失导致的排版问题
+- 毕昇 JDK 21 运行时和 OFDRW：处理 `.ofd` 到 `.pdf`
+- Noto CJK、文泉驿、文鼎和朱雀仿宋字体：减少中文字体缺失导致的排版问题
 
 查看日志：
 
@@ -94,11 +98,11 @@ curl http://127.0.0.1:8028/health/ready
 正常响应：
 
 ```json
-{"status":"ready","soffice":true}
+{"status":"ready","soffice":true,"ofdConverter":true}
 ```
 
 `/health/live` 只检查服务进程；`/health/ready` 还会检查容器内的 `soffice`
-是否存在且可执行。
+和 `ofd2pdf` 是否存在且可执行。
 
 ## 接口调用
 
@@ -153,6 +157,16 @@ curl --fail-with-body \
   http://127.0.0.1:8028/api/v1/convert
 ```
 
+### `.ofd` 转 `.pdf`
+
+```bash
+curl --fail-with-body \
+  -H "X-API-Key: ${CONVERTER_API_KEY}" \
+  -F 'file=@./对外投资管理办法.ofd' \
+  --output ./对外投资管理办法.pdf \
+  http://127.0.0.1:8028/api/v1/convert
+```
+
 成功响应是文件流，并包含正确的 `Content-Type` 和下载文件名。所有响应都包含
 服务生成的 `X-Request-ID`。
 
@@ -162,9 +176,9 @@ curl --fail-with-body \
 | --- | --- | --- |
 | `401` | `AUTH_FAILED` | `X-API-Key` 缺失或错误 |
 | `413` | `FILE_TOO_LARGE` | 文件超过大小限制 |
-| `415` | `UNSUPPORTED_FORMAT` | 文件扩展名不是 `.doc`、`.wps`、`.xls` 或 `.et` |
+| `415` | `UNSUPPORTED_FORMAT` | 文件扩展名不是 `.doc`、`.wps`、`.xls`、`.et` 或 `.ofd` |
 | `429` | `CONCURRENCY_LIMIT` | 当前并发数已达到上限 |
-| `502` | `CONVERSION_FAILED` | LibreOffice 无法启动或转换失败 |
+| `502` | `CONVERSION_FAILED` | 转换引擎无法启动或转换失败 |
 
 错误响应格式：
 
@@ -186,21 +200,35 @@ curl --fail-with-body \
 | `MAX_CONCURRENCY` | 否 | `4` | 同时执行的转换任务数 |
 | `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单个转换任务超时时间 |
 | `SOFFICE_PATH` | 否 | `soffice` | LibreOffice 可执行文件路径 |
+| `OFD_CONVERTER_PATH` | 否 | `ofd2pdf` | OFD 转 PDF 可执行文件路径 |
 | `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
 
 所有数值配置必须是正整数。服务不会记录 API Key、文件内容或客户端文件名。
 
 Compose 默认使用只读根文件系统，并将临时文件放在大小为 512 MB 的 tmpfs 中。
-如果提高文件大小上限或并发数，应同步评估临时空间和内存。
+OFD 转换使用毕昇 JRE 单进程运行，默认最大堆为 512 MB。如果提高文件大小上限、
+并发数或单文件页数，应同步评估临时空间和内存。
 
 ## 本地开发
 
-本地开发需要 Python 3.13、`uv` 和本机 LibreOffice：
+本地开发需要 Python 3.13、`uv` 和本机 LibreOffice。只调试 Office 转换时可以把
+`OFD_CONVERTER_PATH` 指向任意可执行文件；调试 OFD 转换需要另行构建
+`ofd-converter` 并准备毕昇 JDK 或兼容的 JDK 21：
 
 ```bash
 uv sync --dev
 export CONVERTER_API_KEY='replace-with-a-long-random-secret'
+export SOFFICE_PATH=/usr/bin/soffice
+export OFD_CONVERTER_PATH=/path/to/ofd2pdf
 uv run python main.py
+```
+
+`ofd2pdf` 的构建方式：
+
+```bash
+cd ofd-converter
+mvn -q -DskipTests package
+java -Djava.awt.headless=true -jar target/ofd2pdf.jar input.ofd output.pdf
 ```
 
 运行测试：
@@ -212,8 +240,8 @@ uv run python -m compileall -q main.py src tests scripts
 
 ## 真实样本测试
 
-将脱敏的真实 `.doc`、`.wps`、`.xls` 或 `.et` 文件放入被 Git 忽略的 `tests/docs/` 目录，
-然后运行 Docker 集成测试：
+将脱敏的真实 `.doc`、`.wps`、`.xls`、`.et` 或 `.ofd` 文件放入被 Git 忽略的
+`tests/docs/` 目录，然后运行 Docker 集成测试：
 
 ```bash
 uv run python scripts/test_real_samples.py
@@ -234,10 +262,34 @@ uv run python scripts/test_real_samples.py \
 
 - `.doc` 使用旧版 Word 格式，复杂排版、页眉页脚、嵌入对象、宏、特殊字体等内容
   可能出现版式差异。
-- 加密、损坏或 LibreOffice 无法识别的文件会转换失败。
-- `.doc` 和 `.xls` 的输出目标分别是标准 OOXML `.docx` 和 `.xlsx`，服务只有在
-  输出文件结构有效时才返回成功。
+- `.ofd` 是固定版式文档，转换为 PDF 属于有损迁移：字体替换、复杂矢量图形、
+  电子签章与印章可能失真，加密文档会直接转换失败。该能力面向知识库解析和问答，
+  不用于还原可编辑文档。
+- 部分 WPS 生成的 OFD 会用重叠描边模拟粗体，PDF 文本层可能在标题或页眉出现重复
+  字符；正文提取不受影响，建议用业务样本回归检索和问答效果。
+- OFD 未内嵌字体时会嵌入镜像内的替代字体，PDF 体积可能明显增大；调用方仍需按
+  自身输出大小上限处理转换结果。
+- 加密、损坏或对应转换引擎无法识别的文件会转换失败。
+- `.doc` 和 `.xls` 的输出目标分别是标准 OOXML `.docx` 和 `.xlsx`，`.ofd` 的输出
+  目标是包含至少一页且可解析的 PDF；服务只有在输出结构有效时才返回成功。
 - 上线前应使用业务侧脱敏样本回归文字、图片、表格、分页、公式和字体效果。
+
+## 公文字体
+
+镜像按 GB/T 9704-2012 常见字体名称准备了开源替代字体：
+
+| 公文标准字体 | 镜像内替代字体 |
+| --- | --- |
+| 宋体 | AR PL SungtiL GB |
+| 仿宋 / 仿宋_GB2312 | 朱雀仿宋（Zhuque Fangsong） |
+| 楷体 / 楷体_GB2312 | AR PL KaitiM GB |
+| 黑体 | 文泉驿正黑 |
+| 方正小标宋简体 | Noto Serif CJK SC |
+
+OFD 内嵌字体始终优先使用，上述字体只在内嵌字体缺失时兜底。方正小标宋、中易
+宋体等商用字体不随镜像分发，如生产环境需要严格还原原字体，应将已授权的字体文件
+挂载到 `/usr/share/fonts/truetype/gongwen/` 并执行 `fc-cache -f`；OFDRW 会按
+`simsun`、`simhei`、`simkai`、`simfang` 等文件名匹配系统字体。
 
 ## 生产建议
 

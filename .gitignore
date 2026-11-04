@@ -5,6 +5,7 @@ build/
 dist/
 wheels/
 *.egg-info
+ofd-converter/target/
 
 # Virtual environments
 .venv

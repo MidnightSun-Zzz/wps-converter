@@ -16,6 +16,7 @@ services:
       MAX_CONCURRENCY: "${MAX_CONCURRENCY:-4}"
       CONVERSION_TIMEOUT_SECONDS: "${CONVERSION_TIMEOUT_SECONDS:-120}"
       SOFFICE_PATH: "${SOFFICE_PATH:-/usr/bin/soffice}"
+      OFD_CONVERTER_PATH: "${OFD_CONVERTER_PATH:-ofd2pdf}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     read_only: true
     tmpfs:
