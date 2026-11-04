@@ -61,9 +61,6 @@ FROM python:3.13-slim-bookworm
 
 ARG TARGETARCH
 ARG BISHENG_JRE_VERSION=21.0.12-b15
-ARG ZHUQUE_FANGSONG_VERSION=0.212
-ARG ZHUQUE_FANGSONG_BASE_URL=https://github.com/TrionesType/zhuque/releases/download
-ARG ZHUQUE_FANGSONG_MIRROR_BASE_URL=https://ghfast.top/https://github.com/TrionesType/zhuque/releases/download
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -99,22 +96,11 @@ RUN case "${TARGETARCH}" in \
     && /opt/bisheng-jre/bin/java -version
 
 # Open-source GB/T 9704 font substitutes. Embedded OFD fonts always take precedence.
-# GitHub release downloads can fail with transient HTTP/2 stream errors; prefer the
-# domestic GitHub proxy, fall back to GitHub, and verify the zip before extracting.
-RUN mkdir -p /usr/share/fonts/truetype/gongwen \
-    && (curl -fsSL --http1.1 --retry 2 --retry-delay 2 --retry-all-errors \
-            --connect-timeout 10 --max-time 120 \
-            -o /tmp/zhuque.zip \
-            "${ZHUQUE_FANGSONG_MIRROR_BASE_URL}/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
-        && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c -) \
-    || (curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-            --connect-timeout 15 --max-time 300 \
-            -o /tmp/zhuque.zip \
-            "${ZHUQUE_FANGSONG_BASE_URL}/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
-        && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c -) \
-    && unzip -p /tmp/zhuque.zip ZhuqueFangsong-Regular.ttf \
-        > /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf \
-    && rm /tmp/zhuque.zip \
+# Zhuque Fangsong is bundled in the repository so the build does not depend on GitHub.
+COPY docker/fonts/ZhuqueFangsong-Regular.ttf /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf
+COPY docker/fonts/OFL-ZhuqueFangsong.txt /usr/share/doc/fonts-zhuque-fangsong/
+
+RUN echo "558c62730844fe54ba220146ed62f859d4e2880188d92d985f8921c6e3743bc4  /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf" | sha256sum -c - \
     && ln -sf /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf \
         /usr/share/fonts/truetype/gongwen/simfang.ttf \
     && ln -sf /usr/share/fonts/truetype/arphic-gkai00mp/gkai00mp.ttf \

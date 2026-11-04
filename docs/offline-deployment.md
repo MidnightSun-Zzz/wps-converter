@@ -39,15 +39,16 @@ docker image inspect wps-converter:local --format '{{.Os}}/{{.Architecture}}'
 ```
 
 第一次构建会访问 Docker 基础镜像、Dockerfile 中配置的 Debian 镜像源、Python
-包索引、Maven Central、华为毕昇 JDK 镜像站，以及 GitHub 上的朱雀仿宋字体。
-构建成功后保留以下内容，不要执行会清理它们的命令：
+包索引、Maven Central 和华为毕昇 JDK 镜像站。朱雀仿宋字体已内置在仓库
+`docker/fonts/`，构建时不需要访问 GitHub。构建成功后保留以下内容，不要执行会
+清理它们的命令：
 
 - `wps-converter:local` 镜像；
 - `python:3.13-slim-bookworm` 本地镜像；
 - Docker builder 的构建缓存、uv 缓存挂载和 Maven 本地仓库缓存挂载。
 
 如果目标环境不能访问上述站点，需要在第一次联网构建时完成并导出镜像，或者把
-毕昇 JDK/JRE、朱雀仿宋字体和 Maven 依赖提前放入本地缓存或内部镜像源。
+毕昇 JDK/JRE 和 Maven 依赖提前放入本地缓存或内部镜像源。
 
 如果目标服务器从未联网，则必须通过受控介质导入匹配目标架构的基础镜像和依赖包；
 没有这些输入，离线构建无法凭空安装新依赖。
