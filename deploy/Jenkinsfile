@@ -21,6 +21,8 @@ pipeline {
         ENV_FILE        = '/data/wps-converter/.env'
         HOST_PORT       = '8028'
         COMPOSE_SERVICE = 'converter'
+        DEBIAN_MIRROR   = 'mirrors.aliyun.com'
+        PYPI_INDEX_URL  = 'https://pypi.tuna.tsinghua.edu.cn/simple'
     }
 
     stages {
@@ -34,15 +36,20 @@ pipeline {
                     -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
                     -e PYTHONDONTWRITEBYTECODE=1 \
                     -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+                    -e PYPI_INDEX_URL="$PYPI_INDEX_URL" \
                     python:3.13-slim-bookworm \
-                    bash -lc 'pip install --no-cache-dir uv==0.9.12 && uv sync --locked --dev && uv run --no-sync pytest -p no:cacheprovider' '''
+                    bash -lc 'pip install --no-cache-dir --index-url "$PYPI_INDEX_URL" uv==0.9.12 && uv sync --locked --dev && uv run --no-sync pytest -p no:cacheprovider' '''
             }
         }
 
         stage('构建镜像') {
             steps {
                 // Dockerfile 使用 RUN --mount 缓存，必须走 BuildKit；legacy builder 会直接报错。
-                sh 'DOCKER_BUILDKIT=1 docker build -t "$IMAGE:$TAG" .'
+                // Debian/PyPI 走国内镜像；uv sync 仍使用锁文件记录的 pypi.org，避免 --locked 失效。
+                sh '''DOCKER_BUILDKIT=1 docker build \
+                    --build-arg DEBIAN_MIRROR="$DEBIAN_MIRROR" \
+                    --build-arg PYPI_INDEX_URL="$PYPI_INDEX_URL" \
+                    -t "$IMAGE:$TAG" .'''
             }
         }
 

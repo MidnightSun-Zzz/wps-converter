@@ -2,7 +2,9 @@
 
 FROM python:3.13-slim-bookworm AS uv
 
-RUN pip install --no-cache-dir uv==0.9.12
+ARG PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
+RUN pip install --no-cache-dir --index-url "$PYPI_INDEX_URL" uv==0.9.12
 
 # Build the OFD adapter with BiSheng JDK so no non-domestic JDK is used by the build.
 FROM python:3.13-slim-bookworm AS ofd-build
@@ -10,8 +12,12 @@ FROM python:3.13-slim-bookworm AS ofd-build
 ARG TARGETARCH
 ARG BISHENG_JDK_VERSION=21.0.12-b15
 ARG MAVEN_VERSION=3.9.11
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
+ARG MAVEN_BASE_URL=https://mirrors.huaweicloud.com/apache/maven/maven-3
+ARG MAVEN_FALLBACK_BASE_URL=https://archive.apache.org/dist/maven/maven-3
 
-RUN apt-get update \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,9 +36,16 @@ RUN case "${TARGETARCH}" in \
 ENV JAVA_HOME=/opt/bisheng-jdk \
     PATH="/opt/bisheng-jdk/bin:${PATH}"
 
-RUN curl -fsSL -o /tmp/apache-maven.tar.gz \
-        "https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
-    && echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  /tmp/apache-maven.tar.gz" | sha512sum -c - \
+RUN (curl -fsSL --http1.1 --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 10 --max-time 180 \
+            -o /tmp/apache-maven.tar.gz \
+            "${MAVEN_BASE_URL}/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        && echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  /tmp/apache-maven.tar.gz" | sha512sum -c -) \
+    || (curl -fsSL --http1.1 --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 10 --max-time 300 \
+            -o /tmp/apache-maven.tar.gz \
+            "${MAVEN_FALLBACK_BASE_URL}/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        && echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978  /tmp/apache-maven.tar.gz" | sha512sum -c -) \
     && mkdir -p /opt/maven \
     && tar -xzf /tmp/apache-maven.tar.gz -C /opt/maven --strip-components=1 \
     && rm /tmp/apache-maven.tar.gz \
@@ -40,15 +53,17 @@ RUN curl -fsSL -o /tmp/apache-maven.tar.gz \
 
 WORKDIR /build
 
-COPY ofd-converter/pom.xml ./pom.xml
+COPY ofd-converter/pom.xml ofd-converter/settings.xml ./
 COPY ofd-converter/src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests package
+RUN --mount=type=cache,target=/root/.m2 mvn -q -s settings.xml -DskipTests package
 
 FROM python:3.13-slim-bookworm
 
 ARG TARGETARCH
 ARG BISHENG_JRE_VERSION=21.0.12-b15
 ARG ZHUQUE_FANGSONG_VERSION=0.212
+ARG ZHUQUE_FANGSONG_BASE_URL=https://github.com/TrionesType/zhuque/releases/download
+ARG ZHUQUE_FANGSONG_MIRROR_BASE_URL=https://ghfast.top/https://github.com/TrionesType/zhuque/releases/download
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -84,14 +99,19 @@ RUN case "${TARGETARCH}" in \
     && /opt/bisheng-jre/bin/java -version
 
 # Open-source GB/T 9704 font substitutes. Embedded OFD fonts always take precedence.
-# GitHub release downloads can fail with transient HTTP/2 stream errors; force HTTP/1.1
-# and retry so a single flaky connection does not fail the whole image build.
+# GitHub release downloads can fail with transient HTTP/2 stream errors; prefer the
+# domestic GitHub proxy, fall back to GitHub, and verify the zip before extracting.
 RUN mkdir -p /usr/share/fonts/truetype/gongwen \
-    && curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
-        --connect-timeout 15 --max-time 300 \
-        -o /tmp/zhuque.zip \
-        "https://github.com/TrionesType/zhuque/releases/download/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
-    && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c - \
+    && (curl -fsSL --http1.1 --retry 2 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 10 --max-time 120 \
+            -o /tmp/zhuque.zip \
+            "${ZHUQUE_FANGSONG_MIRROR_BASE_URL}/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
+        && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c -) \
+    || (curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 15 --max-time 300 \
+            -o /tmp/zhuque.zip \
+            "${ZHUQUE_FANGSONG_BASE_URL}/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
+        && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c -) \
     && unzip -p /tmp/zhuque.zip ZhuqueFangsong-Regular.ttf \
         > /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf \
     && rm /tmp/zhuque.zip \
