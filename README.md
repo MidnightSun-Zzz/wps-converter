@@ -295,6 +295,9 @@ uv run python scripts/test_real_samples.py \
 | 黑体 | 文泉驿正黑 |
 | 方正小标宋简体 | Noto Serif CJK SC |
 
+朱雀仿宋字体文件随仓库提供（`docker/fonts/ZhuqueFangsong-Regular.ttf`，OFL-1.1），
+构建时不需要联网下载。
+
 OFD 内嵌字体始终优先使用，上述字体只在内嵌字体缺失时兜底。方正小标宋、中易
 宋体等商用字体不随镜像分发，如生产环境需要严格还原原字体，应将已授权的字体文件
 挂载到 `/usr/share/fonts/truetype/gongwen/` 并执行 `fc-cache -f`；OFDRW 会按
