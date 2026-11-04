@@ -84,8 +84,12 @@ RUN case "${TARGETARCH}" in \
     && /opt/bisheng-jre/bin/java -version
 
 # Open-source GB/T 9704 font substitutes. Embedded OFD fonts always take precedence.
+# GitHub release downloads can fail with transient HTTP/2 stream errors; force HTTP/1.1
+# and retry so a single flaky connection does not fail the whole image build.
 RUN mkdir -p /usr/share/fonts/truetype/gongwen \
-    && curl -fsSL -o /tmp/zhuque.zip \
+    && curl -fsSL --http1.1 --retry 5 --retry-delay 3 --retry-all-errors \
+        --connect-timeout 15 --max-time 300 \
+        -o /tmp/zhuque.zip \
         "https://github.com/TrionesType/zhuque/releases/download/v${ZHUQUE_FANGSONG_VERSION}/ZhuqueFangsong-v${ZHUQUE_FANGSONG_VERSION}.zip" \
     && echo "bb8b661a7643d2296a72d9d10530a00949419c4e527fb61783f73c2ba1a8c062  /tmp/zhuque.zip" | sha256sum -c - \
     && unzip -p /tmp/zhuque.zip ZhuqueFangsong-Regular.ttf \
