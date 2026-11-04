@@ -1,0 +1,76 @@
+// wps-converter 部署流水线
+// 拓扑：Jenkins（11.100.20.7，宿主机 systemd 运行）构建 → docker save 直传 → 部署到 11.100.20.17:8028
+// 一次性前置配置（root 免密通道、/data/wps-converter/.env）见 deploy/jenkins-deployment.md
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()   // 同一时间只允许一个构建，避免目标机上容器替换竞态
+        timeout(time: 90, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    environment {
+        IMAGE           = 'wps-converter'
+        // 用 git 短哈希做镜像 tag，回滚时可精确指到任意历史版本
+        TAG             = "${env.GIT_COMMIT ? env.GIT_COMMIT.substring(0, 8) : 'r' + env.BUILD_NUMBER}"
+        DEPLOY_HOST     = 'root@11.100.20.17'
+        SSH             = 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes'
+        DEPLOY_DIR      = '/data/wps-converter'
+        ENV_FILE        = '/data/wps-converter/.env'
+        HOST_PORT       = '8028'
+        COMPOSE_SERVICE = 'converter'
+    }
+
+    stages {
+        stage('单测门禁') {
+            steps {
+                // 在与运行镜像一致的 Python 3.13 容器里跑 pytest，不污染 Jenkins 宿主机。
+                // uv 缓存挂到命名卷，重复构建只增量下载依赖。
+                sh '''docker run --rm \
+                    -v "$PWD":/app -w /app \
+                    -v jwai-wps-uv-cache:/root/.cache/uv \
+                    -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+                    -e PYTHONDONTWRITEBYTECODE=1 \
+                    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+                    python:3.13-slim-bookworm \
+                    bash -lc 'pip install --no-cache-dir uv==0.9.12 && uv sync --locked --dev && uv run --no-sync pytest -p no:cacheprovider' '''
+            }
+        }
+
+        stage('构建镜像') {
+            steps {
+                // Dockerfile 使用 RUN --mount 缓存，必须走 BuildKit；legacy builder 会直接报错。
+                sh 'DOCKER_BUILDKIT=1 docker build -t "$IMAGE:$TAG" .'
+            }
+        }
+
+        stage('传输镜像') {
+            steps {
+                // gzip 压缩后内网点对点直传，无需 registry
+                sh 'docker save "$IMAGE:$TAG" | gzip | $SSH $DEPLOY_HOST "gunzip | docker load"'
+            }
+        }
+
+        stage('部署') {
+            steps {
+                // deploy.sh 在目标机上执行：隔离预检 → compose 替换 → 健康门禁 → 失败自动回滚
+                sh '$SSH $DEPLOY_HOST IMAGE="$IMAGE" TAG="$TAG" DEPLOY_DIR="$DEPLOY_DIR" ENV_FILE="$ENV_FILE" HOST_PORT="$HOST_PORT" COMPOSE_SERVICE="$COMPOSE_SERVICE" bash -s < deploy/deploy.sh'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "部署成功：${IMAGE}:${TAG}，健康检查 http://11.100.20.17:8028/health/ready"
+        }
+        failure {
+            echo '构建/部署失败。若失败发生在部署阶段，deploy.sh 会自动回滚上一版本并在下方输出容器日志。'
+        }
+        always {
+            sh 'docker image prune -f || true'   // 只清 dangling 层，不动带 tag 的历史镜像
+            deleteDir()
+        }
+    }
+}

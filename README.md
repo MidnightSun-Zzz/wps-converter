@@ -88,6 +88,15 @@ docker compose down
 镜像和依赖缓存。需要在无互联网环境中频繁更新代码时，请参阅
 [`docs/offline-deployment.md`](docs/offline-deployment.md)。
 
+## Jenkins 部署
+
+仓库提供 `deploy/Jenkinsfile`、`deploy/deploy.sh` 和
+[`deploy/jenkins-deployment.md`](deploy/jenkins-deployment.md)。流水线在 Jenkins
+机构建镜像，直传目标机，先在隔离容器内做预检，再替换容器并执行
+`/health/ready` 健康门禁；失败自动回滚上一版本。当前默认目标机为测试转换机
+`11.100.20.17:8028`（`/data/wps-converter`），与测试后端 `WPS_CONVERTER_URL`
+一致。首次配置、目标机 `.env`、Jenkins job 和回滚命令见部署文档。
+
 ## 健康检查
 
 ```bash
