@@ -105,7 +105,17 @@ sudo -u jenkins ssh root@11.100.20.17 'docker version >/dev/null && docker compo
 | 传输镜像 | `docker save \| gzip \| ssh … "gunzip \| docker load"` | 内网点对点，无需 registry；镜像较大，首次传输时间较长 |
 | 部署 | `ssh root@11.100.20.17 bash -s < deploy/deploy.sh` | 行为见 §3 |
 
-首次构建需要 Jenkins 能访问 Docker Hub、`mirrors.aliyun.com`、PyPI、Maven Central、华为毕昇 JDK/JRE 镜像和 GitHub（朱雀仿宋字体）。如果 Jenkins 不能直连这些源，需要提前预热构建缓存或改用内部镜像源；否则构建阶段会失败。镜像包含 LibreOffice、JRE 和字体，体积较大，Jenkins 的 Docker 数据盘建议预留至少 10 GB，并在首次构建前确认 `df -h /var/lib/docker` 空间充足。
+首次构建需要 Jenkins 能访问 Docker Hub、Debian 包源、PyPI、Maven Central、华为毕昇 JDK/JRE 镜像和 GitHub（朱雀仿宋字体）。当前已配置以下国内加速：
+
+| 来源 | 当前配置 | 说明 |
+| --- | --- | --- |
+| Debian apt | `mirrors.aliyun.com` | 最终镜像阶段固定阿里云；`ofd-build` 阶段可用 Jenkinsfile 的 `DEBIAN_MIRROR` 覆盖为清华/中科大源 |
+| PyPI（uv 二进制） | `pypi.tuna.tsinghua.edu.cn` | Jenkinsfile 的 `PYPI_INDEX_URL`；`uv sync` 仍按 `uv.lock` 走 `pypi.org`，因为 `--locked` 不允许换源 |
+| Maven | `maven.aliyun.com/repository/public` | 见 `ofd-converter/settings.xml`；依赖缺失时改回 Maven Central |
+| 朱雀仿宋字体 | `ghfast.top` GitHub 代理，失败回退 GitHub | Dockerfile 的 `ZHUQUE_FANGSONG_MIRROR_BASE_URL`；两种来源都做 SHA256 校验 |
+| Docker 基础镜像 | Docker Hub | 如拉取慢，在 Jenkins 的 Docker daemon 配置 `registry-mirrors`，不在仓库内改 |
+
+如果 Jenkins 不能直连这些源，需要提前预热构建缓存或改用内部镜像源；否则构建阶段会失败。镜像包含 LibreOffice、JRE 和字体，体积较大，Jenkins 的 Docker 数据盘建议预留至少 10 GB，并在首次构建前确认 `df -h /var/lib/docker` 空间充足。
 
 ## 3. 部署脚本行为（deploy/deploy.sh）
 
