@@ -26,6 +26,183 @@ Compose 的 `build.pull: false` 禁止构建时主动拉取 `FROM` 镜像。它�
 基础镜像、系统软件包或 Python 包变成可用的离线资源；这些资源必须在进入隔离环境前
 准备好。
 
+## 交付预构建镜像（推荐用于 OFD 等依赖变更）
+
+新增 OFD 转换后，目标机离线构建不再是最省事的路径：镜像新增了毕昇 JRE、
+OFDRW/Maven 依赖、LibreOffice/字体等 Debian 包和 arm64 基础镜像。更可靠的方式是在
+一台联网的 arm64 构建机上生成完整镜像，再把镜像和源码一起带进隔离环境。
+
+### 1. 在 arm64 构建机生成发布包
+
+构建机需要 Docker，并且 Docker 平台必须是 `linux/arm64`：
+
+```bash
+docker info --format '{{.OSType}}/{{.Architecture}}'
+```
+
+在仓库根目录执行：
+
+```bash
+DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
+```
+
+脚本会：
+
+- 检查工作区是否干净；有未提交改动时直接失败，避免镜像和源码包不一致；
+- 以 `--platform linux/arm64` 构建镜像；
+- 检查镜像内 `soffice`、毕昇 JRE、`ofd2pdf` 和 Python 依赖；
+- 导出镜像、源码 tar、git bundle、服务端脚本和 `SHA256SUMS`；
+- 默认输出到 `~/gov-llm-releases/wps-converter-arm64-<短哈希>/`，并生成同名 `.tar`
+  单文件传输包。
+
+常用选项：
+
+```bash
+# 复用已经构建好的镜像
+deploy/package-release.sh --skip-build --tag arm64-<短哈希>
+
+# 指定输出目录
+deploy/package-release.sh --output /data/releases
+```
+
+发布包内容：
+
+```text
+wps-converter-arm64-<短哈希>/
+  wps-converter-arm64-<短哈希>-image.tar.gz
+  wps-converter-arm64-<短哈希>-src.tar.gz
+  wps-converter-arm64-<短哈希>.bundle
+  deploy.sh
+  apply-release.sh
+  release.env
+  README.txt
+  SHA256SUMS
+```
+
+### 2. 传到目标机并校验
+
+```bash
+scp wps-converter-arm64-<短哈希>.tar \
+    wps-converter-arm64-<短哈希>.tar.sha256 \
+    root@<目标机>:/data/
+
+ssh root@<目标机> \
+  'cd /data && sha256sum -c wps-converter-arm64-<短哈希>.tar.sha256'
+```
+
+解包后还会校验包内每个文件：
+
+```bash
+cd /data
+tar -xf wps-converter-arm64-<短哈希>.tar
+cd wps-converter-arm64-<短哈希>
+sha256sum -c SHA256SUMS
+```
+
+### 3. 目标机一键加载、更新代码并切换
+
+```bash
+cd /data/wps-converter-arm64-<短哈希>
+./apply-release.sh
+```
+
+`apply-release.sh` 会依次完成：
+
+1. 校验发布包文件；
+2. 确认目标机 Docker 平台为 `linux/arm64`；
+3. `docker load` 镜像并再次检查镜像架构；
+4. 把源码解压到 `<deploy-dir>/source/<tag>`，并更新 `current` 符号链接；
+5. 如果 `CODE_DIR` 是 git 仓库，用发布包里的 bundle 更新到发布提交；
+6. 调用同目录的 `deploy.sh`：候选容器预检 → 切换 `wps-converter:local` →
+   `/health/ready` 健康门禁 → 失败自动回滚。
+
+默认路径：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DEPLOY_DIR` | `/data/wps-converter` | compose 和 `.env` 所在目录 |
+| `ENV_FILE` | `<DEPLOY_DIR>/.env` | 运行时环境文件 |
+| `CODE_DIR` | `/opt/wps-converter` | 服务端代码仓库；有 git/bundle 时自动 clone/更新 |
+| `SOURCE_ROOT` | `<DEPLOY_DIR>/source` | 版本化源码快照目录 |
+| `HOST_PORT` | 空 | 留空时由 `deploy.sh` 从 `.env` 的 `CONVERTER_PORT` 读取 |
+| `COMPOSE_SERVICE` | `converter` | compose 服务名 |
+
+按目标机实际路径覆盖：
+
+```bash
+DEPLOY_DIR=/data/wps-converter \
+ENV_FILE=/data/wps-converter/.env \
+CODE_DIR=/opt/wps-converter \
+SOURCE_ROOT=/data/wps-converter/source \
+HOST_PORT=8028 \
+COMPOSE_SERVICE=converter \
+./apply-release.sh
+```
+
+只加载镜像和更新代码，不切换服务：
+
+```bash
+./apply-release.sh --no-deploy
+```
+
+只切换镜像，不更新代码：
+
+```bash
+./apply-release.sh --no-code
+```
+
+`CODE_DIR` 有未提交改动时默认拒绝更新；确认可以丢弃后再加 `--force-code`。
+如果 `CODE_DIR` 不是 git 仓库且非空，脚本会中止，避免覆盖未知内容；可改用
+`--no-code` 或移走该目录。缺少 git/bundle 时不会创建 `CODE_DIR`，但最新源码始终在
+`SOURCE_ROOT/current`。
+
+### 4. 代码快照与仓库同步
+
+- 每个发布版本都会在 `SOURCE_ROOT/<tag>` 保留一份代码快照，`current` 指向最新版本；
+  快照来自与镜像相同的 git 提交，便于排查和后续构建。
+- `CODE_DIR` 是 git 仓库时，`apply-release.sh` 会从发布包的 git bundle 更新到同一提交。
+  如果目录不存在或为空，有 git/bundle 时会 `git clone` bundle 创建仓库；没有 git 或
+  bundle 时不创建 `CODE_DIR`，只保留源码快照。
+- `.env`、`docker-compose.yml` 由目标机人工维护，发布包不会覆盖。
+
+### 5. 回滚
+
+`deploy.sh` 在健康检查失败时会自动回滚到切换前的镜像。手动回滚：
+
+```bash
+cd /data/wps-converter
+docker tag wps-converter:previous wps-converter:local
+docker compose up -d --no-build --pull never converter
+```
+
+### 6. 验收
+
+```bash
+curl -fsS http://127.0.0.1:8028/health/ready
+# 应返回 soffice=true、ofdConverter=true
+```
+
+再用真实 `.ofd` 样本调用一次 `/api/v1/convert`，确认返回 `%PDF-` 开头且可解析的
+PDF。OFD 字体替换、电子签章和印章可能失真，仍需业务侧按真实样本验收。
+
+目标机注意事项：
+
+- Docker 建议 20.10 及以上；平台必须是 `linux/arm64`。
+- 镜像约 1.5 GB，确认 `/var/lib/docker` 和 `/data` 空间充足。
+- 目标 compose 必须保留可写 `/tmp`（当前 compose 使用 tmpfs）；OFD 转换需要临时文件。
+- 旧 compose 如果显式设置了 `OFD_CONVERTER_PATH`，确认是 `ofd2pdf` 或删除该变量。
+- 不要在目标机执行 `docker compose up --build`；部署脚本使用 `--no-build --pull never`。
+
+### 7. 为什么不传依赖包
+
+OFD 升级涉及 apt、Maven、PyPI 和 JDK/JRE 四类资源，还要匹配 arm64 和 Debian
+bookworm。只传“依赖包”通常需要改 Dockerfile、准备本地 apt/Maven/PyPI 源和完整缓存，
+漏掉一个传递依赖就会在构建后半段失败。镜像方式把运行时依赖封成一个已验证的镜像，
+目标机只负责加载和切换，回滚也更简单。
+
+如果安全制度禁止导入镜像、必须目标机自行构建，建议维护一个预装好工具链和依赖的
+内部 `builder` 基础镜像，而不是每次手工拼依赖包。
+
 ## 一次性准备
 
 应在目标服务器仍可联网时完成以下步骤。由于镜像内包含 LibreOffice 和可能带有

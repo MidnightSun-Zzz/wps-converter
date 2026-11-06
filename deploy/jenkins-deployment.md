@@ -194,6 +194,7 @@ docker stats --no-stream wps-converter-converter-1    # 资源占用
 - **与 Agent 的 Jenkinsfile 差异**：Agent 用 `docker run` 直接管理单容器；wps-converter 沿用目标机已有的 compose（`/data/wps-converter`），因此部署脚本会调用 `docker compose up`，并保留 `wps-converter:local` / `wps-converter:previous` 两个标签。
 - **BuildKit 是硬要求**：Dockerfile 的 `RUN --mount=type=cache` 是 BuildKit 语法；Jenkinsfile 已显式设置 `DOCKER_BUILDKIT=1`。若 Jenkins 的 Docker 版本过旧，需要升级 Docker 或改用带 buildx 的构建方式。
 - **架构必须匹配**：目标机 `.17` 为 x86_64；Jenkins 构建机需与目标机架构一致。可在 Jenkins 上执行 `docker version --format '{{.Server.Arch}}'` 与目标机对比。若目标机是 arm64（如生产 `.214`），不能在 x86 Jenkins 上直接构建后传输；需在 arm64 机器构建，或给流水线增加 `buildx --platform linux/arm64` 与 QEMU，当前方案不包含这部分。
+- **arm64 离线目标**：使用 `deploy/package-release.sh` 在联网的 arm64 构建机生成镜像 + 源码发布包，目标机用 `deploy/apply-release.sh` 加载并复用 `deploy/deploy.sh` 完成预检、切换和回滚。步骤见 [`docs/offline-deployment.md`](../docs/offline-deployment.md#交付预构建镜像推荐用于-ofd-等依赖变更)。
 - **目标机源码不更新**：流水线只更新镜像，不更新 `/data/wps-converter` 的源码 checkout。compose、`.env` 或系统依赖变化时，仍需人工在目标机处理。
 
 ## 8. 后续可选增强（当前不做）
