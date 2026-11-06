@@ -26,7 +26,8 @@ RUN case "${TARGETARCH}" in \
         arm64) jdk_arch=aarch64; jdk_sha=c4c3babd4b32f21de909c64d41e2296ac41d4da2397dab9982db10a2be27cd27 ;; \
         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
-    && curl -fsSL --retry 20 --retry-delay 2 --retry-all-errors --connect-timeout 15 \
+    && curl -fsSL --retry 10 --retry-delay 2 --retry-all-errors \
+        --connect-timeout 15 --max-time 900 \
         -o /tmp/bisheng-jdk.tar.gz \
         "https://mirrors.huaweicloud.com/kunpeng/archive/compiler/bisheng_jdk/bisheng-jdk-${BISHENG_JDK_VERSION}-linux-${jdk_arch}.tar.gz" \
     && echo "${jdk_sha}  /tmp/bisheng-jdk.tar.gz" | sha256sum -c - \
@@ -62,12 +63,13 @@ FROM python:3.13-slim-bookworm
 
 ARG TARGETARCH
 ARG BISHENG_JRE_VERSION=21.0.12-b15
+ARG DEBIAN_MIRROR=mirrors.aliyun.com
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources \
+RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install --no-install-recommends -y \
         ca-certificates \
@@ -88,7 +90,8 @@ RUN case "${TARGETARCH}" in \
         arm64) jre_arch=aarch64; jre_sha=c687464b249ac48322242a7de7b192e13850b5d670951109745156189c3d2eca ;; \
         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
-    && curl -fsSL --retry 20 --retry-delay 2 --retry-all-errors --connect-timeout 15 \
+    && curl -fsSL --retry 10 --retry-delay 2 --retry-all-errors \
+        --connect-timeout 15 --max-time 900 \
         -o /tmp/bisheng-jre.tar.gz \
         "https://mirrors.huaweicloud.com/kunpeng/archive/compiler/bisheng_jdk/bisheng-jre-${BISHENG_JRE_VERSION}-linux-${jre_arch}.tar.gz" \
     && echo "${jre_sha}  /tmp/bisheng-jre.tar.gz" | sha256sum -c - \

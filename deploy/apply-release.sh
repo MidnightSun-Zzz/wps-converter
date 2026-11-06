@@ -34,7 +34,7 @@ usage() {
   -h, --help          显示帮助
 
 环境变量:
-  CODE_DIR            服务端已有 git 仓库路径；不存在或为空时会自动创建
+  CODE_DIR            服务端已有 git 仓库路径；有 git/bundle 时自动 clone 创建
   SOURCE_ROOT         保存 <tag> 源码快照和 current 符号链接
 EOF
 }
@@ -117,6 +117,7 @@ fi
 # shellcheck disable=SC1091
 source ./release.env
 
+: "${FORMAT_VERSION:?release.env 缺少 FORMAT_VERSION}"
 : "${IMAGE:?release.env 缺少 IMAGE}"
 : "${TAG:?release.env 缺少 TAG}"
 : "${PLATFORM:?release.env 缺少 PLATFORM}"
@@ -124,6 +125,8 @@ source ./release.env
 : "${SOURCE_ARCHIVE:?release.env 缺少 SOURCE_ARCHIVE}"
 : "${GIT_COMMIT:?release.env 缺少 GIT_COMMIT}"
 
+[[ "$FORMAT_VERSION" == "1" ]] \
+    || fail "不支持的发布包格式：$FORMAT_VERSION"
 [[ "$PLATFORM" == "linux/arm64" ]] \
     || fail "发布包平台为 ${PLATFORM}，不是 linux/arm64"
 [[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] \
@@ -191,6 +194,13 @@ if [[ "$NO_CODE" -eq 0 ]]; then
             git -C "$CODE_DIR" fetch --force "$RELEASE_DIR/$GIT_BUNDLE" \
                 "+refs/heads/*:refs/remotes/release/*" \
                 || git -C "$CODE_DIR" fetch --force "$RELEASE_DIR/$GIT_BUNDLE"
+            if git -C "$CODE_DIR" rev-parse --verify HEAD >/dev/null 2>&1; then
+                AHEAD=$(git -C "$CODE_DIR" rev-list --count "$GIT_COMMIT..HEAD" 2>/dev/null || echo 0)
+                if [[ "$AHEAD" -gt 0 && "$FORCE_CODE" -eq 0 ]]; then
+                    fail "$CODE_DIR 有 $AHEAD 个未包含在发布包中的本地提交。
+请先推送/备份，或使用 --force-code 丢弃本地提交，或使用 --no-code 跳过代码更新。"
+                fi
+            fi
             git -C "$CODE_DIR" checkout -f -B "${GIT_BRANCH:-main}" "$GIT_COMMIT"
             echo "        仓库: $CODE_DIR @ $GIT_COMMIT"
         elif [[ ! -e "$CODE_DIR" || -z "$(ls -A "$CODE_DIR" 2>/dev/null)" ]]; then

@@ -36,6 +36,7 @@ usage() {
 
 环境变量:
   DEBIAN_MIRROR           传给 Dockerfile 的 Debian 镜像源，例如 deb.debian.org
+  PYPI_INDEX_URL          传给 Dockerfile 的 PyPI 镜像源（仅用于安装 uv 二进制）
 
 示例:
   DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
@@ -101,7 +102,7 @@ BRANCH=$(git branch --show-current)
 [[ -n "$BRANCH" ]] || BRANCH=main
 CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git -c core.autocrlf=true status --porcelain)" ]]; then
     echo "错误：工作区有未提交改动。" >&2
     echo "镜像会包含工作区内容，而源码包来自 HEAD，两者会不一致。" >&2
     echo "请先提交或 stash 后重试：" >&2
@@ -128,6 +129,9 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     if [[ -n "${DEBIAN_MIRROR:-}" ]]; then
         BUILD_ARGS+=(--build-arg "DEBIAN_MIRROR=$DEBIAN_MIRROR")
     fi
+    if [[ -n "${PYPI_INDEX_URL:-}" ]]; then
+        BUILD_ARGS+=(--build-arg "PYPI_INDEX_URL=$PYPI_INDEX_URL")
+    fi
     echo "[..] 构建 $IMAGE:$TAG (linux/arm64)"
     DOCKER_BUILDKIT=1 docker build \
         --platform linux/arm64 \
@@ -146,6 +150,9 @@ else
         2>/dev/null || true)
     if [[ -n "$IMAGE_REVISION" && "$IMAGE_REVISION" != "$COMMIT" ]]; then
         fail "镜像 revision=$IMAGE_REVISION 与当前提交 $COMMIT 不一致，不能复用。"
+    fi
+    if [[ -z "$IMAGE_REVISION" ]]; then
+        echo "[WARN] 镜像缺少 org.opencontainers.image.revision 标签，无法校验它与当前提交是否一致。" >&2
     fi
 fi
 
@@ -242,11 +249,11 @@ wps-converter arm64 离线发布包
 不更新代码:
   ./apply-release.sh --no-code
 
-代码目录有本地改动、确认丢弃后强制更新:
+代码目录有本地改动/本地提交、确认丢弃后强制更新:
   ./apply-release.sh --force-code
 
 注意:
-  - 目标机必须是 Linux arm64，Docker 平台为 linux/arm64。
+  - 目标机必须是 Linux arm64，Docker 平台显示为 linux/arm64 或 linux/aarch64。
   - .env 和 docker-compose.yml 由目标机维护，发布包不会覆盖。
   - 不要使用 docker compose up --build；部署脚本使用 --no-build --pull never。
 EOF

@@ -1,7 +1,8 @@
 # 无互联网环境部署与更新
 
 本文适用于以下场景：目标服务器只有一个特定 CPU 架构，部署后无法访问互联网，
-但仍需要频繁修改本服务代码并重新执行 `docker compose build`。
+但仍需要更新本服务。目标机保留构建缓存时可以离线重建；涉及新系统依赖或 arm64
+交付时，推荐直接加载预构建镜像。
 
 ## 构建设计
 
@@ -68,6 +69,9 @@ deploy/package-release.sh --skip-build --tag arm64-<短哈希>
 
 # 指定输出目录
 deploy/package-release.sh --output /data/releases
+
+# 不生成外层单文件 tar，改为直接传发布目录
+deploy/package-release.sh --no-transfer-archive
 ```
 
 发布包内容：
@@ -114,7 +118,7 @@ cd /data/wps-converter-arm64-<短哈希>
 `apply-release.sh` 会依次完成：
 
 1. 校验发布包文件；
-2. 确认目标机 Docker 平台为 `linux/arm64`；
+2. 确认目标机 Docker 平台为 `linux/arm64` 或 `linux/aarch64`；
 3. `docker load` 镜像并再次检查镜像架构；
 4. 把源码解压到 `<deploy-dir>/source/<tag>`，并更新 `current` 符号链接；
 5. 如果 `CODE_DIR` 是 git 仓库，用发布包里的 bundle 更新到发布提交；
@@ -156,10 +160,13 @@ COMPOSE_SERVICE=converter \
 ./apply-release.sh --no-code
 ```
 
-`CODE_DIR` 有未提交改动时默认拒绝更新；确认可以丢弃后再加 `--force-code`。
-如果 `CODE_DIR` 不是 git 仓库且非空，脚本会中止，避免覆盖未知内容；可改用
-`--no-code` 或移走该目录。缺少 git/bundle 时不会创建 `CODE_DIR`，但最新源码始终在
-`SOURCE_ROOT/current`。
+`CODE_DIR` 有未提交改动或未包含在发布包中的本地提交时，默认拒绝更新；确认可以丢弃后
+再加 `--force-code`。如果 `CODE_DIR` 不是 git 仓库且非空，脚本会中止，避免覆盖未知
+内容；可改用 `--no-code` 或移走该目录。缺少 git/bundle 时不会创建 `CODE_DIR`，但最新
+源码始终在 `SOURCE_ROOT/current`。
+
+不要把 `CODE_DIR` 直接指向 `DEPLOY_DIR`（通常包含目标机的 `.env` 和
+`docker-compose.yml`），否则 git 切换代码时可能覆盖这些人工维护的文件。
 
 ### 4. 代码快照与仓库同步
 

@@ -90,7 +90,7 @@ docker compose down
 
 目标机是 Linux arm64 时，推荐在联网的 arm64 构建机上执行
 `deploy/package-release.sh`，生成包含镜像、源码快照和校验文件的发布包；目标机执行
-`deploy/apply-release.sh` 完成加载、代码更新和服务切换。完整步骤见
+发布包内的 `./apply-release.sh` 完成加载、代码更新和服务切换。完整步骤见
 [`docs/offline-deployment.md`](docs/offline-deployment.md#交付预构建镜像推荐用于-ofd-等依赖变更)。
 
 ## Jenkins 部署
