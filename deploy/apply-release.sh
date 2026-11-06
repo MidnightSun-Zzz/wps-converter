@@ -125,7 +125,7 @@ source ./release.env
 : "${GIT_COMMIT:?release.env 缺少 GIT_COMMIT}"
 
 [[ "$PLATFORM" == "linux/arm64" ]] \
-    || fail "发布包平台为 $PLATFORM，不是 linux/arm64"
+    || fail "发布包平台为 ${PLATFORM}，不是 linux/arm64"
 [[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] \
     || fail "release.env 中的 TAG 非法：$TAG"
 [[ -n "$IMAGE" && "$IMAGE" != *[[:space:]]* ]] \
@@ -138,7 +138,7 @@ if [[ -z "$TARGET_PLATFORM" || "$TARGET_PLATFORM" == "/" ]]; then
     fail "无法读取目标机 Docker 平台，请确认 Docker 已启动。"
 fi
 [[ "$TARGET_PLATFORM" == "linux/arm64" || "$TARGET_PLATFORM" == "linux/aarch64" ]] \
-    || fail "目标机 Docker 平台为 $TARGET_PLATFORM，需要 linux/arm64 或 linux/aarch64"
+    || fail "目标机 Docker 平台为 ${TARGET_PLATFORM}，需要 linux/arm64 或 linux/aarch64"
 
 echo "[..] 加载镜像 $IMAGE:$TAG"
 gunzip -c "$IMAGE_ARCHIVE" | docker load
@@ -147,7 +147,7 @@ ACTUAL_PLATFORM=$(docker image inspect "$IMAGE:$TAG" \
     --format '{{.Os}}/{{.Architecture}}' 2>/dev/null) \
     || fail "镜像加载后不存在：$IMAGE:$TAG"
 [[ "$ACTUAL_PLATFORM" == "linux/arm64" || "$ACTUAL_PLATFORM" == "linux/aarch64" ]] \
-    || fail "加载后的镜像平台为 $ACTUAL_PLATFORM，不是 linux/arm64"
+    || fail "加载后的镜像平台为 ${ACTUAL_PLATFORM}，不是 linux/arm64"
 
 IMAGE_REVISION=$(docker image inspect "$IMAGE:$TAG" \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
@@ -173,7 +173,7 @@ if [[ "$NO_CODE" -eq 0 ]]; then
     mv "$TMP_DIR" "$SOURCE_ROOT/$SNAPSHOT_NAME"
     ln -sfn "$SNAPSHOT_NAME" "$SOURCE_ROOT/current"
     trap - EXIT
-    echo "        快照: $SOURCE_ROOT/$SNAPSHOT_NAME（current 已指向该版本）"
+    echo "        快照: $SOURCE_ROOT/${SNAPSHOT_NAME}（current 已指向该版本）"
 
     if [[ -n "${CODE_DIR:-}" ]]; then
         if [[ -d "$CODE_DIR/.git" ]]; then
@@ -184,7 +184,7 @@ if [[ "$NO_CODE" -eq 0 ]]; then
 请先提交/stash，或使用 --force-code 丢弃本地改动，或使用 --no-code 跳过代码更新。"
             fi
             [[ -n "${GIT_BUNDLE:-}" && -f "$GIT_BUNDLE" ]] \
-                || fail "发布包缺少 git bundle，无法更新 $CODE_DIR；可使用 --no-code 跳过。"
+                || fail "发布包缺少 git bundle，无法更新 ${CODE_DIR}；可使用 --no-code 跳过。"
             if [[ "$FORCE_CODE" -eq 1 && -n "$(git -C "$CODE_DIR" status --porcelain)" ]]; then
                 echo "[WARN] --force-code：丢弃 $CODE_DIR 的本地改动" >&2
             fi
@@ -201,7 +201,7 @@ if [[ "$NO_CODE" -eq 0 ]]; then
                 git -C "$CODE_DIR" checkout -f -B "${GIT_BRANCH:-main}" "$GIT_COMMIT"
                 echo "        仓库: $CODE_DIR @ $GIT_COMMIT"
             else
-                echo "[WARN] 目标机缺少 git 或发布包缺少 bundle，未创建 $CODE_DIR；最新源码见 $SOURCE_ROOT/current。" >&2
+                echo "[WARN] 目标机缺少 git 或发布包缺少 bundle，未创建 ${CODE_DIR}；最新源码见 $SOURCE_ROOT/current。" >&2
             fi
         else
             fail "$CODE_DIR 不是 git 仓库且非空，无法安全更新。
