@@ -216,6 +216,20 @@ bookworm。只传“依赖包”通常需要改 Dockerfile、准备本地 apt/Ma
 如果安全制度禁止导入镜像、必须目标机自行构建，建议维护一个预装好工具链和依赖的
 内部 `builder` 基础镜像，而不是每次手工拼依赖包。
 
+### 8. 构建机常见问题
+
+- **架构显示不一致**：部分 Docker 版本在 `docker info` 中显示 `linux/aarch64`，
+  而 `docker version` 和镜像元数据显示 `linux/arm64`。发布脚本两者都接受。
+- **apt 镜像不可达**：构建机若使用 HTTP 代理，Docker 构建容器可能无法访问默认的
+  Debian 镜像源。可设置 `DEBIAN_MIRROR=deb.debian.org`，或在 Docker Desktop 中
+  配置构建代理后再试。
+- **毕昇 JDK/JRE 下载断流**：Dockerfile 已加下载重试和超时；仍失败时换网络或
+  预热本地镜像。
+- **macOS Bash 3.2**：脚本中变量后紧跟中文时使用 `${VAR}` 形式，避免 Bash 3.2
+  把中文字节并入变量名。
+- **工作区不干净**：发布脚本会拒绝构建，因为镜像来自工作区而源码包来自 HEAD，
+  两者可能不一致。先提交或 stash 再打包。
+
 ## 一次性准备
 
 应在目标服务器仍可联网时完成以下步骤。由于镜像内包含 LibreOffice 和可能带有
