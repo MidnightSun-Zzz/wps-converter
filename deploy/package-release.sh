@@ -306,8 +306,9 @@ fi
 echo
 echo "目标机步骤:"
 if [[ -n "$TRANSFER_ARCHIVE" ]]; then
-    echo "  scp $(basename "$TRANSFER_ARCHIVE") $(basename "$TRANSFER_ARCHIVE").sha256 root@<目标机>:/data/"
-    echo "  ssh root@<目标机> 'cd /data && sha256sum -c $(basename "$TRANSFER_ARCHIVE").sha256 && tar -xf $(basename "$TRANSFER_ARCHIVE")'"
+    echo "  scp $(basename "$TRANSFER_ARCHIVE") root@<目标机>:/data/"
+    echo "  # 可选：同时 scp $(basename "$TRANSFER_ARCHIVE").sha256，并在目标机先做外层校验"
+    echo "  ssh root@<目标机> 'cd /data && tar -xf $(basename "$TRANSFER_ARCHIVE")'"
     echo "  ssh root@<目标机> 'cd /data/$RELEASE_NAME && ./apply-release.sh'"
 else
     echo "  scp -r $RELEASE_DIR root@<目标机>:/data/"

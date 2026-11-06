@@ -94,6 +94,14 @@ wps-converter-<短哈希>/
 
 ### 2. 传到目标机并校验
 
+只需要传 `.tar`；发布包旁的 `.sha256` 是可选的传输校验文件，不是部署必需：
+
+```bash
+scp wps-converter-<短哈希>.tar root@<目标机>:/data/
+```
+
+如需在传输前先校验外层文件，可以同时带上 `.sha256`：
+
 ```bash
 scp wps-converter-<短哈希>.tar \
     wps-converter-<短哈希>.tar.sha256 \
@@ -102,6 +110,9 @@ scp wps-converter-<短哈希>.tar \
 ssh root@<目标机> \
   'cd /data && sha256sum -c wps-converter-<短哈希>.tar.sha256'
 ```
+
+`apply-release.sh` 会在加载前校验包内 `SHA256SUMS`；部分部署脚本还会自行计算 tar 的
+SHA256 与目标机比对，因此不带外层 `.sha256` 也能正常发布。
 
 解包后还会校验包内每个文件：
 
