@@ -34,10 +34,15 @@ OFDRW/Maven 依赖、LibreOffice/字体等 Debian 包和 arm64 基础镜像。�
 
 ### 1. 在 arm64 构建机生成发布包
 
-构建机需要 Docker，并且 Docker 平台必须是 `linux/arm64`：
+构建机需要 Docker，并且 Docker 平台必须是 Linux arm64。不同 Docker 版本可能把架构
+显示为 `arm64` 或 `aarch64`，脚本两者都接受：
 
 ```bash
 docker info --format '{{.OSType}}/{{.Architecture}}'
+# linux/arm64 或 linux/aarch64
+
+docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
+# linux/arm64
 ```
 
 在仓库根目录执行：
@@ -187,7 +192,8 @@ PDF。OFD 字体替换、电子签章和印章可能失真，仍需业务侧按�
 
 目标机注意事项：
 
-- Docker 建议 20.10 及以上；平台必须是 `linux/arm64`。
+- Docker 建议 20.10 及以上；平台必须是 Linux arm64（显示为 `linux/arm64` 或
+  `linux/aarch64` 均可）。
 - 镜像约 1.5 GB，确认 `/var/lib/docker` 和 `/data` 空间充足。
 - 目标 compose 必须保留可写 `/tmp`（当前 compose 使用 tmpfs）；OFD 转换需要临时文件。
 - 旧 compose 如果显式设置了 `OFD_CONVERTER_PATH`，确认是 `ofd2pdf` 或删除该变量。

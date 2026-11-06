@@ -134,8 +134,11 @@ source ./release.env
 [[ -f "$SOURCE_ARCHIVE" ]] || fail "缺少源码文件：$SOURCE_ARCHIVE"
 
 TARGET_PLATFORM=$(docker info --format '{{.OSType}}/{{.Architecture}}' 2>/dev/null || true)
-[[ "$TARGET_PLATFORM" == "linux/arm64" ]] \
-    || fail "目标机 Docker 平台为 ${TARGET_PLATFORM:-未知}，需要 linux/arm64"
+if [[ -z "$TARGET_PLATFORM" || "$TARGET_PLATFORM" == "/" ]]; then
+    fail "无法读取目标机 Docker 平台，请确认 Docker 已启动。"
+fi
+[[ "$TARGET_PLATFORM" == "linux/arm64" || "$TARGET_PLATFORM" == "linux/aarch64" ]] \
+    || fail "目标机 Docker 平台为 $TARGET_PLATFORM，需要 linux/arm64 或 linux/aarch64"
 
 echo "[..] 加载镜像 $IMAGE:$TAG"
 gunzip -c "$IMAGE_ARCHIVE" | docker load
@@ -143,7 +146,7 @@ gunzip -c "$IMAGE_ARCHIVE" | docker load
 ACTUAL_PLATFORM=$(docker image inspect "$IMAGE:$TAG" \
     --format '{{.Os}}/{{.Architecture}}' 2>/dev/null) \
     || fail "镜像加载后不存在：$IMAGE:$TAG"
-[[ "$ACTUAL_PLATFORM" == "linux/arm64" ]] \
+[[ "$ACTUAL_PLATFORM" == "linux/arm64" || "$ACTUAL_PLATFORM" == "linux/aarch64" ]] \
     || fail "加载后的镜像平台为 $ACTUAL_PLATFORM，不是 linux/arm64"
 
 IMAGE_REVISION=$(docker image inspect "$IMAGE:$TAG" \

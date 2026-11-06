@@ -115,8 +115,11 @@ command -v docker >/dev/null 2>&1 || fail "未找到 docker"
 command -v git >/dev/null 2>&1 || fail "未找到 git"
 
 BUILD_PLATFORM=$(docker info --format '{{.OSType}}/{{.Architecture}}' 2>/dev/null || true)
-if [[ "$BUILD_PLATFORM" != "linux/arm64" ]]; then
-    fail "构建机 Docker 平台为 ${BUILD_PLATFORM:-未知}，需要 linux/arm64。
+if [[ -z "$BUILD_PLATFORM" || "$BUILD_PLATFORM" == "/" ]]; then
+    fail "无法读取 Docker 平台，请确认 Docker Desktop/daemon 已启动。"
+fi
+if [[ "$BUILD_PLATFORM" != "linux/arm64" && "$BUILD_PLATFORM" != "linux/aarch64" ]]; then
+    fail "构建机 Docker 平台为 $BUILD_PLATFORM，需要 linux/arm64 或 linux/aarch64。
 请在 Apple Silicon Mac 或 arm64 Linux 构建机上执行；x86 构建机需要 buildx/QEMU，本脚本不处理。"
 fi
 
@@ -147,7 +150,7 @@ else
 fi
 
 ACTUAL_PLATFORM=$(docker image inspect "$IMAGE:$TAG" --format '{{.Os}}/{{.Architecture}}')
-[[ "$ACTUAL_PLATFORM" == "linux/arm64" ]] \
+[[ "$ACTUAL_PLATFORM" == "linux/arm64" || "$ACTUAL_PLATFORM" == "linux/aarch64" ]] \
     || fail "镜像平台为 $ACTUAL_PLATFORM，不是 linux/arm64"
 
 if [[ "$SKIP_SMOKE" -eq 0 ]]; then
