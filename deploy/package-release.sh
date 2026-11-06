@@ -13,7 +13,7 @@ REPO=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null) || {
 
 IMAGE=${IMAGE:-wps-converter}
 SHORT_COMMIT=$(git -C "$REPO" rev-parse --short=8 HEAD)
-TAG=${TAG:-arm64-$SHORT_COMMIT}
+TAG=${TAG:-$SHORT_COMMIT}
 OUTPUT_DIR=${OUTPUT_DIR:-$HOME/gov-llm-releases}
 SKIP_BUILD=0
 SKIP_SMOKE=0
@@ -27,7 +27,7 @@ usage() {
 
 选项:
   --image NAME            镜像名，默认 wps-converter
-  --tag TAG               镜像 tag，默认 arm64-<git 短哈希>
+  --tag TAG               镜像 tag，默认 <git 短哈希>；多架构共库时可自行加后缀
   --output DIR            输出根目录，默认 ~/gov-llm-releases
   --skip-build            复用已存在的镜像，不重新构建
   --skip-smoke            跳过镜像内运行时组件检查
@@ -40,7 +40,7 @@ usage() {
 
 示例:
   DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
-  deploy/package-release.sh --skip-build --tag arm64-62ea08ac
+  deploy/package-release.sh --skip-build --tag 62ea08ac
 EOF
 }
 

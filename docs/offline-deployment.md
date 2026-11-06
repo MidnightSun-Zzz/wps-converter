@@ -58,14 +58,18 @@ DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
 - 以 `--platform linux/arm64` 构建镜像；
 - 检查镜像内 `soffice`、毕昇 JRE、`ofd2pdf` 和 Python 依赖；
 - 导出镜像、源码 tar、git bundle、服务端脚本和 `SHA256SUMS`；
-- 默认输出到 `~/gov-llm-releases/wps-converter-arm64-<短哈希>/`，并生成同名 `.tar`
+- 镜像 tag 默认直接使用 git 短哈希，例如 `wps-converter:62ea08ac`；
+- 默认输出到 `~/gov-llm-releases/wps-converter-<短哈希>/`，并生成同名 `.tar`
   单文件传输包。
+
+当前离线单机交付用 hash 作为 tag 即可。如果以后把同一 commit 的 x86_64 和 arm64
+镜像推到同一个 registry，tag 会冲突，这时再用 `--tag <短哈希>-arm64` 区分。
 
 常用选项：
 
 ```bash
 # 复用已经构建好的镜像
-deploy/package-release.sh --skip-build --tag arm64-<短哈希>
+deploy/package-release.sh --skip-build --tag <短哈希>
 
 # 指定输出目录
 deploy/package-release.sh --output /data/releases
@@ -77,10 +81,10 @@ deploy/package-release.sh --no-transfer-archive
 发布包内容：
 
 ```text
-wps-converter-arm64-<短哈希>/
-  wps-converter-arm64-<短哈希>-image.tar.gz
-  wps-converter-arm64-<短哈希>-src.tar.gz
-  wps-converter-arm64-<短哈希>.bundle
+wps-converter-<短哈希>/
+  wps-converter-<短哈希>-image.tar.gz
+  wps-converter-<短哈希>-src.tar.gz
+  wps-converter-<短哈希>.bundle
   deploy.sh
   apply-release.sh
   release.env
@@ -91,27 +95,27 @@ wps-converter-arm64-<短哈希>/
 ### 2. 传到目标机并校验
 
 ```bash
-scp wps-converter-arm64-<短哈希>.tar \
-    wps-converter-arm64-<短哈希>.tar.sha256 \
+scp wps-converter-<短哈希>.tar \
+    wps-converter-<短哈希>.tar.sha256 \
     root@<目标机>:/data/
 
 ssh root@<目标机> \
-  'cd /data && sha256sum -c wps-converter-arm64-<短哈希>.tar.sha256'
+  'cd /data && sha256sum -c wps-converter-<短哈希>.tar.sha256'
 ```
 
 解包后还会校验包内每个文件：
 
 ```bash
 cd /data
-tar -xf wps-converter-arm64-<短哈希>.tar
-cd wps-converter-arm64-<短哈希>
+tar -xf wps-converter-<短哈希>.tar
+cd wps-converter-<短哈希>
 sha256sum -c SHA256SUMS
 ```
 
 ### 3. 目标机一键加载、更新代码并切换
 
 ```bash
-cd /data/wps-converter-arm64-<短哈希>
+cd /data/wps-converter-<短哈希>
 ./apply-release.sh
 ```
 
