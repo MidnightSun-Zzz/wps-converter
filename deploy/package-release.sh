@@ -290,16 +290,6 @@ if ! tar -C "$STAGING_DIR" -cf "$TRANSFER_ARCHIVE" "$RELEASE_NAME"; then
     rm -f "$TRANSFER_ARCHIVE"
     fail "生成传输包失败"
 fi
-(
-    cd "$OUTPUT_DIR"
-    if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$(basename "$TRANSFER_ARCHIVE")" \
-            > "$(basename "$TRANSFER_ARCHIVE").sha256"
-    else
-        shasum -a 256 "$(basename "$TRANSFER_ARCHIVE")" \
-            > "$(basename "$TRANSFER_ARCHIVE").sha256"
-    fi
-)
 rm -rf "$STAGING_DIR"
 STAGING_DIR=""
 trap - EXIT
@@ -308,10 +298,8 @@ echo
 echo "[ OK ] 发布包: $TRANSFER_ARCHIVE"
 echo "        镜像: $IMAGE:$TAG ($ACTUAL_PLATFORM)"
 echo "        源码: $SOURCE_ARCHIVE"
-echo "        校验: ${TRANSFER_ARCHIVE}.sha256（可选）"
 echo
 echo "目标机步骤:"
 echo "  scp $(basename "$TRANSFER_ARCHIVE") root@<目标机>:/data/"
-echo "  # 可选：同时 scp $(basename "$TRANSFER_ARCHIVE").sha256，并在目标机先做外层校验"
 echo "  ssh root@<目标机> 'cd /data && tar -xf $(basename "$TRANSFER_ARCHIVE")'"
 echo "  ssh root@<目标机> 'cd /data/$RELEASE_NAME && ./apply-release.sh'"

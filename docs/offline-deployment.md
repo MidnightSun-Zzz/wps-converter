@@ -59,8 +59,8 @@ DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
 - 检查镜像内 `soffice`、毕昇 JRE、`ofd2pdf` 和 Python 依赖；
 - 导出镜像、源码 tar、git bundle、服务端脚本和 `SHA256SUMS`；
 - 镜像 tag 默认直接使用 git 短哈希，例如 `wps-converter:62ea08ac`；
-- 默认只输出单文件 `~/gov-llm-releases/wps-converter-<短哈希>.tar`，以及可选的
-  `.tar.sha256`；展开目录使用临时 staging，生成 tar 后自动删除。
+- 默认只输出单文件 `~/gov-llm-releases/wps-converter-<短哈希>.tar`；展开目录使用
+  临时 staging，生成 tar 后自动删除。
 
 当前离线单机交付用 hash 作为 tag 即可。如果以后把同一 commit 的 x86_64 和 arm64
 镜像推到同一个 registry，tag 会冲突，这时再用 `--tag <短哈希>-arm64` 区分。
@@ -91,25 +91,14 @@ wps-converter-<短哈希>/
 
 ### 2. 传到目标机并校验
 
-只需要传 `.tar`；发布包旁的 `.sha256` 是可选的传输校验文件，不是部署必需：
+只传 `.tar`，不再生成外层 `.sha256`：
 
 ```bash
 scp wps-converter-<短哈希>.tar root@<目标机>:/data/
 ```
 
-如需在传输前先校验外层文件，可以同时带上 `.sha256`：
-
-```bash
-scp wps-converter-<短哈希>.tar \
-    wps-converter-<短哈希>.tar.sha256 \
-    root@<目标机>:/data/
-
-ssh root@<目标机> \
-  'cd /data && sha256sum -c wps-converter-<短哈希>.tar.sha256'
-```
-
-`apply-release.sh` 会在加载前校验包内 `SHA256SUMS`；部分部署脚本还会自行计算 tar 的
-SHA256 与目标机比对，因此不带外层 `.sha256` 也能正常发布。
+`apply-release.sh` 会在加载前校验 tar 包内的 `SHA256SUMS`；部署脚本也会自行计算
+tar 的 SHA256 与目标机比对，不需要额外的校验文件。
 
 解包后还会校验包内每个文件：
 
