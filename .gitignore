@@ -26,3 +26,6 @@ AGENTS.md
 output/
 .DS_Store
 .codegraph
+
+# Local wps-converter release packages generated under deploy/
+/deploy/wps-converter-*
