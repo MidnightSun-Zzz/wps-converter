@@ -17,13 +17,12 @@ TAG=${TAG:-$SHORT_COMMIT}
 OUTPUT_DIR=${OUTPUT_DIR:-$HOME/gov-llm-releases}
 SKIP_BUILD=0
 SKIP_SMOKE=0
-MAKE_TRANSFER_ARCHIVE=1
 
 usage() {
     cat <<'EOF'
 用法: deploy/package-release.sh [选项]
 
-在 arm64 构建机上构建 linux/arm64 镜像，并打包为可离线交付的发布目录。
+在 arm64 构建机上构建 linux/arm64 镜像，并打包为可离线交付的单文件 tar。
 
 选项:
   --image NAME            镜像名，默认 wps-converter
@@ -31,7 +30,6 @@ usage() {
   --output DIR            输出根目录，默认 ~/gov-llm-releases
   --skip-build            复用已存在的镜像，不重新构建
   --skip-smoke            跳过镜像内运行时组件检查
-  --no-transfer-archive   不生成外层单文件 tar
   -h, --help              显示帮助
 
 环境变量:
@@ -72,10 +70,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-smoke)
             SKIP_SMOKE=1
-            shift
-            ;;
-        --no-transfer-archive)
-            MAKE_TRANSFER_ARCHIVE=0
             shift
             ;;
         -h|--help)
@@ -166,20 +160,31 @@ if [[ "$SKIP_SMOKE" -eq 0 ]]; then
         set -e
         command -v soffice >/dev/null
         /opt/bisheng-jre/bin/java -version >/dev/null 2>&1
-        ( /usr/local/bin/ofd2pdf 2>&1 || true ) | grep -q "usage: ofd2pdf"
+        test -x /usr/local/bin/ofd2pdf
+        /opt/bisheng-jre/bin/java -jar /opt/ofd2pdf/ofd2pdf.jar 2>&1 | grep -q "usage: ofd2pdf"
         python -c "import pypdf, fastapi"
     '
 fi
 
 RELEASE_NAME="$IMAGE-$TAG"
 RELEASE_NAME=${RELEASE_NAME//\//-}
-RELEASE_DIR="$OUTPUT_DIR/$RELEASE_NAME"
 IMAGE_ARCHIVE="$RELEASE_NAME-image.tar.gz"
 SOURCE_ARCHIVE="$RELEASE_NAME-src.tar.gz"
 GIT_BUNDLE="$RELEASE_NAME.bundle"
 README_FILE="README.txt"
+TRANSFER_ARCHIVE="$OUTPUT_DIR/$RELEASE_NAME.tar"
 
-rm -rf "$RELEASE_DIR"
+mkdir -p "$OUTPUT_DIR"
+STAGING_DIR=""
+cleanup_staging() {
+    if [[ -n "$STAGING_DIR" ]]; then
+        rm -rf "$STAGING_DIR"
+    fi
+}
+trap cleanup_staging EXIT
+
+STAGING_DIR=$(mktemp -d "$OUTPUT_DIR/.wps-release.XXXXXX")
+RELEASE_DIR="$STAGING_DIR/$RELEASE_NAME"
 mkdir -p "$RELEASE_DIR"
 
 echo "[..] 导出镜像 $IMAGE:$TAG"
@@ -279,38 +284,34 @@ echo "[..] 生成 SHA256SUMS"
     fi
 )
 
-TRANSFER_ARCHIVE=""
-if [[ "$MAKE_TRANSFER_ARCHIVE" -eq 1 ]]; then
-    TRANSFER_ARCHIVE="$OUTPUT_DIR/$RELEASE_NAME.tar"
-    echo "[..] 生成单文件传输包 $TRANSFER_ARCHIVE"
-    tar -C "$OUTPUT_DIR" -cf "$TRANSFER_ARCHIVE" "$RELEASE_NAME"
-    (
-        cd "$OUTPUT_DIR"
-        if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$(basename "$TRANSFER_ARCHIVE")" \
-                > "$(basename "$TRANSFER_ARCHIVE").sha256"
-        else
-            shasum -a 256 "$(basename "$TRANSFER_ARCHIVE")" \
-                > "$(basename "$TRANSFER_ARCHIVE").sha256"
-        fi
-    )
+echo "[..] 生成单文件传输包 $TRANSFER_ARCHIVE"
+rm -f "$TRANSFER_ARCHIVE" "$TRANSFER_ARCHIVE.sha256"
+if ! tar -C "$STAGING_DIR" -cf "$TRANSFER_ARCHIVE" "$RELEASE_NAME"; then
+    rm -f "$TRANSFER_ARCHIVE"
+    fail "生成传输包失败"
 fi
+(
+    cd "$OUTPUT_DIR"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$(basename "$TRANSFER_ARCHIVE")" \
+            > "$(basename "$TRANSFER_ARCHIVE").sha256"
+    else
+        shasum -a 256 "$(basename "$TRANSFER_ARCHIVE")" \
+            > "$(basename "$TRANSFER_ARCHIVE").sha256"
+    fi
+)
+rm -rf "$STAGING_DIR"
+STAGING_DIR=""
+trap - EXIT
 
 echo
-echo "[ OK ] 发布包目录: $RELEASE_DIR"
+echo "[ OK ] 发布包: $TRANSFER_ARCHIVE"
 echo "        镜像: $IMAGE:$TAG ($ACTUAL_PLATFORM)"
 echo "        源码: $SOURCE_ARCHIVE"
-if [[ -n "$TRANSFER_ARCHIVE" ]]; then
-    echo "        单文件: $TRANSFER_ARCHIVE"
-fi
+echo "        校验: ${TRANSFER_ARCHIVE}.sha256（可选）"
 echo
 echo "目标机步骤:"
-if [[ -n "$TRANSFER_ARCHIVE" ]]; then
-    echo "  scp $(basename "$TRANSFER_ARCHIVE") root@<目标机>:/data/"
-    echo "  # 可选：同时 scp $(basename "$TRANSFER_ARCHIVE").sha256，并在目标机先做外层校验"
-    echo "  ssh root@<目标机> 'cd /data && tar -xf $(basename "$TRANSFER_ARCHIVE")'"
-    echo "  ssh root@<目标机> 'cd /data/$RELEASE_NAME && ./apply-release.sh'"
-else
-    echo "  scp -r $RELEASE_DIR root@<目标机>:/data/"
-    echo "  ssh root@<目标机> 'cd /data/$RELEASE_NAME && sha256sum -c SHA256SUMS && ./apply-release.sh'"
-fi
+echo "  scp $(basename "$TRANSFER_ARCHIVE") root@<目标机>:/data/"
+echo "  # 可选：同时 scp $(basename "$TRANSFER_ARCHIVE").sha256，并在目标机先做外层校验"
+echo "  ssh root@<目标机> 'cd /data && tar -xf $(basename "$TRANSFER_ARCHIVE")'"
+echo "  ssh root@<目标机> 'cd /data/$RELEASE_NAME && ./apply-release.sh'"

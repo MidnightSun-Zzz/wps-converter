@@ -59,8 +59,8 @@ DEBIAN_MIRROR=deb.debian.org deploy/package-release.sh
 - 检查镜像内 `soffice`、毕昇 JRE、`ofd2pdf` 和 Python 依赖；
 - 导出镜像、源码 tar、git bundle、服务端脚本和 `SHA256SUMS`；
 - 镜像 tag 默认直接使用 git 短哈希，例如 `wps-converter:62ea08ac`；
-- 默认输出到 `~/gov-llm-releases/wps-converter-<短哈希>/`，并生成同名 `.tar`
-  单文件传输包。
+- 默认只输出单文件 `~/gov-llm-releases/wps-converter-<短哈希>.tar`，以及可选的
+  `.tar.sha256`；展开目录使用临时 staging，生成 tar 后自动删除。
 
 当前离线单机交付用 hash 作为 tag 即可。如果以后把同一 commit 的 x86_64 和 arm64
 镜像推到同一个 registry，tag 会冲突，这时再用 `--tag <短哈希>-arm64` 区分。
@@ -73,12 +73,9 @@ deploy/package-release.sh --skip-build --tag <短哈希>
 
 # 指定输出目录
 deploy/package-release.sh --output /data/releases
-
-# 不生成外层单文件 tar，改为直接传发布目录
-deploy/package-release.sh --no-transfer-archive
 ```
 
-发布包内容：
+tar 包内包含：
 
 ```text
 wps-converter-<短哈希>/
