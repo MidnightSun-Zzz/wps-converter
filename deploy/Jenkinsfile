@@ -1,5 +1,5 @@
 // wps-converter 部署流水线
-// 拓扑：Jenkins（CHANGE_ME_JENKINS_IP，宿主机 systemd 运行）构建 → docker save 直传 → 部署到 CHANGE_ME_WPS_TARGET_IP:8028
+// 拓扑：Jenkins（宿主机 systemd 运行）构建 → docker save 直传 → 目标机
 // 一次性前置配置（root 免密通道、/data/wps-converter/.env）见 deploy/jenkins-deployment.md
 pipeline {
     agent any
@@ -15,7 +15,8 @@ pipeline {
         IMAGE           = 'wps-converter'
         // 用 git 短哈希做镜像 tag，回滚时可精确指到任意历史版本
         TAG             = "${env.GIT_COMMIT ? env.GIT_COMMIT.substring(0, 8) : 'r' + env.BUILD_NUMBER}"
-        DEPLOY_HOST     = 'root@CHANGE_ME_WPS_TARGET_IP'
+        // 目标机 SSH 地址来自 Jenkins Secret text 凭据，仓库不保存 IP
+        DEPLOY_HOST     = credentials('wps-converter-deploy-host')
         SSH             = 'ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes'
         DEPLOY_DIR      = '/data/wps-converter'
         ENV_FILE        = '/data/wps-converter/.env'
@@ -70,7 +71,7 @@ pipeline {
 
     post {
         success {
-            echo "部署成功：${IMAGE}:${TAG}，健康检查 http://CHANGE_ME_WPS_TARGET_IP:8028/health/ready"
+            echo "部署成功：${IMAGE}:${TAG}，已通过 /health/ready 健康门禁"
         }
         failure {
             echo '构建/部署失败。若失败发生在部署阶段，deploy.sh 会自动回滚上一版本并在下方输出容器日志。'

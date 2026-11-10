@@ -94,6 +94,16 @@ sudo -u jenkins ssh root@CHANGE_ME_WPS_TARGET_IP 'docker version >/dev/null && d
 
 插件要求：仅 Git + Pipeline（apt 安装的 Jenkins 默认自带）。ssh 走宿主机既有免密通道，不依赖 sshagent 插件。
 
+**目标机地址不再写入仓库**：`deploy/Jenkinsfile` 使用 `credentials('wps-converter-deploy-host')`。
+在 Jenkins 的 `Manage Jenkins → Credentials → System → Global credentials` 新建：
+
+- Kind：`Secret text`
+- ID：`wps-converter-deploy-host`
+- Secret：`root@<目标机IP>`
+- Description：`wps-converter 目标机 SSH`（可选）
+
+范围选 `Global`。真实 IP 只保存在 Jenkins 凭据中，构建日志会自动打码。
+
 **前置**：`deploy/Jenkinsfile`、`deploy/deploy.sh` 已提交并推送到对应分支，然后点 Build Now。
 
 ## 2. 流水线阶段（Jenkinsfile）
