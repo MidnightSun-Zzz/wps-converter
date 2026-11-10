@@ -8,6 +8,8 @@ import org.apache.pdfbox.pdmodel.graphics.blend.BlendMode;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState;
+import org.bouncycastle.asn1.ASN1InputStream;
+import org.bouncycastle.asn1.ASN1Sequence;
 import org.ofdrw.converter.canvas.CanvasImageMaker;
 import org.ofdrw.converter.utils.CommonUtil;
 import org.ofdrw.core.basicType.ST_Box;
@@ -66,14 +68,22 @@ final class SealFallbackRenderer {
                     org.ofdrw.core.signatures.sig.Signature description =
                             readSignature(reader, signature);
                     if (description == null) {
+                        System.err.println("Signature description unreadable: "
+                                + signature.getBaseLoc());
                         continue;
                     }
                     SignedInfo signedInfo = description.getSignedInfo();
+                    SealImage image = null;
                     Seal seal = signedInfo.getSeal();
-                    if (seal == null) {
-                        continue;
+                    if (seal != null) {
+                        image = readSealImage(reader, signature, seal);
                     }
-                    SealImage image = readSealImage(reader, signature, seal);
+                    if (image == null && description.getSignedValue() != null) {
+                        // KingGrid/WPS may use a relative SignedValue path that
+                        // OFDReader cannot resolve; parse it ourselves.
+                        image = readSignedValueImage(
+                                reader, signature, description.getSignedValue());
+                    }
                     if (image == null) {
                         continue;
                     }
@@ -154,14 +164,9 @@ final class SealFallbackRenderer {
     }
 
     private static SealImage readSealImage(OFDReader reader, Signature signature, Seal seal) {
-        ResourceLocator locator = reader.getResourceLocator();
-        ST_Loc signaturesLoc = reader.getDefaultDocSignaturesPath();
-        locator.save();
         try {
-            locator.cd(signaturesLoc.parent());
-            locator.cd(signature.getBaseLoc().parent());
-            Path sealFile = locator.getFile(seal.getBaseLoc());
-            SESVersionHolder holder = VersionParser.parseSES_SealVersion(Files.readAllBytes(sealFile));
+            SESVersionHolder holder = VersionParser.parseSES_SealVersion(
+                    firstSequence(readSignatureFile(reader, signature, seal.getBaseLoc())));
             String type;
             byte[] data;
             switch (holder.getVersion()) {
@@ -187,8 +192,67 @@ final class SealFallbackRenderer {
             return data == null ? null : new SealImage(type, data);
         } catch (Exception error) {
             return null;
+        }
+    }
+
+    private static SealImage readSignedValueImage(
+            OFDReader reader, Signature signature, ST_Loc signedValue) {
+        try {
+            SESVersionHolder holder = VersionParser.parseSES_SignatureVersion(
+                    firstSequence(readSignatureFile(reader, signature, signedValue)));
+            String type;
+            byte[] data;
+            switch (holder.getVersion()) {
+                case v1 -> {
+                    var picture = holder.getInstanceV1()
+                            .getToSign().getEseal().getEsealInfo().getPicture();
+                    type = picture.getType() == null ? null : picture.getType().getString();
+                    data = picture.getData() == null ? null : picture.getData().getOctets();
+                }
+                case v4 -> {
+                    var picture = holder.getInstanceV4()
+                            .getToSign().getEseal().geteSealInfo().getPicture();
+                    type = picture.getType() == null ? null : picture.getType().getString();
+                    data = picture.getData() == null ? null : picture.getData().getOctets();
+                }
+                case v5 -> {
+                    var picture = holder.getInstanceV5()
+                            .getToSign().getEseal().geteSealInfo().getPicture();
+                    type = picture.getType() == null ? null : picture.getType().getString();
+                    data = picture.getData() == null ? null : picture.getData().getOctets();
+                }
+                default -> {
+                    return null;
+                }
+            }
+            return data == null ? null : new SealImage(type, data);
+        } catch (Exception error) {
+            System.err.println("SignedValue seal parse failed: " + error);
+            error.printStackTrace(System.err);
+            return null;
+        }
+    }
+
+    private static byte[] readSignatureFile(
+            OFDReader reader, Signature signature, ST_Loc location) throws Exception {
+        ResourceLocator locator = reader.getResourceLocator();
+        locator.save();
+        try {
+            locator.cd(reader.getDefaultDocSignaturesPath().parent());
+            locator.cd(signature.getBaseLoc().parent());
+            return Files.readAllBytes(locator.getFile(location));
         } finally {
             locator.restore();
+        }
+    }
+
+    private static ASN1Sequence firstSequence(byte[] bytes) throws Exception {
+        try (ASN1InputStream input = new ASN1InputStream(bytes)) {
+            ASN1Sequence sequence = ASN1Sequence.getInstance(input.readObject());
+            if (sequence == null) {
+                throw new IllegalArgumentException("empty ASN.1 signature value");
+            }
+            return sequence;
         }
     }
 
