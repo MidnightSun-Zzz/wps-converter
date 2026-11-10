@@ -1,10 +1,35 @@
 #!/bin/sh
 set -eu
 
-exec /opt/bisheng-jre/bin/java \
+input=$1
+output=$2
+
+/opt/bisheng-jre/bin/java \
     -Djava.awt.headless=true \
     -Djava.io.tmpdir="${TMPDIR:-/tmp}" \
     -XX:+UseSerialGC \
     -Xms16m \
     -Xmx512m \
-    -jar /opt/ofd2pdf/ofd2pdf.jar "$@"
+    -jar /opt/ofd2pdf/ofd2pdf.jar "$input" "$output"
+
+# OFDRW embeds the full substituted CJK fonts, which is large when the OFD has
+# no embedded fonts. Subset and recompress with Ghostscript, keeping the text
+# layer and vector graphics. Keep the original PDF if the rewrite fails.
+compressed="${output}.compressed.pdf"
+if command -v gs >/dev/null 2>&1 && gs -q -dNOPAUSE -dBATCH -dSAFER \
+    -sDEVICE=pdfwrite \
+    -dCompatibilityLevel=1.7 \
+    -dSubsetFonts=true \
+    -dEmbedAllFonts=true \
+    -dCompressFonts=true \
+    -dDownsampleColorImages=false \
+    -dDownsampleGrayImages=false \
+    -dDownsampleMonoImages=false \
+    -dAutoRotatePages=/None \
+    -dPreserveAnnots=true \
+    -sOutputFile="$compressed" "$output" >/dev/null 2>&1 \
+    && [ -s "$compressed" ]; then
+    mv -f "$compressed" "$output"
+else
+    rm -f "$compressed"
+fi

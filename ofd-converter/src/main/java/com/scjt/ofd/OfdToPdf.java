@@ -23,8 +23,11 @@ public final class OfdToPdf {
         }
         Path source = Path.of(args[0]);
         Path target = Path.of(args[1]);
-        try (PDFExporter exporter = new PDFExporter(source, target)) {
-            exporter.export();
+        try {
+            try (PDFExporter exporter = new PDFExporter(source, target)) {
+                exporter.export();
+            }
+            SealFallbackRenderer.apply(source, target);
         } catch (Throwable error) {
             System.err.println("OFD conversion failed: " + error.getMessage());
             error.printStackTrace(System.err);

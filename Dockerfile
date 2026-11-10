@@ -79,6 +79,7 @@ RUN sed -i "s|deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.
         fonts-arphic-gkai00mp \
         fonts-noto-cjk \
         fonts-wqy-zenhei \
+        ghostscript \
         libreoffice-calc \
         libreoffice-writer \
         unzip \
@@ -100,24 +101,31 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/bisheng-jre.tar.gz \
     && /opt/bisheng-jre/bin/java -version
 
-# Open-source GB/T 9704 font substitutes. Embedded OFD fonts always take precedence.
-# Zhuque Fangsong is bundled in the repository so the build does not depend on GitHub.
+# GB/T 9704 fonts. Embedded OFD fonts always take precedence. The three
+# licensed fonts below are provided in docker/fonts and are used before the
+# open-source substitutes; Zhuque remains as a FangSong fallback.
 COPY docker/fonts/ZhuqueFangsong-Regular.ttf /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf
 COPY docker/fonts/OFL-ZhuqueFangsong.txt /usr/share/doc/fonts-zhuque-fangsong/
+COPY docker/fonts/仿宋_GB2312.ttf /usr/share/fonts/truetype/gongwen/FangSong_GB2312.ttf
+COPY docker/fonts/楷体_GB2312.ttf /usr/share/fonts/truetype/gongwen/KaiTi_GB2312.ttf
+COPY docker/fonts/方正小标宋简体.TTF /usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf
 
 RUN echo "558c62730844fe54ba220146ed62f859d4e2880188d92d985f8921c6e3743bc4  /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf" | sha256sum -c - \
-    && ln -sf /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf \
+    && echo "fef7cf991b458cabd184b73378918d9d15429010e1d6c804f08d394395c3c3b4  /usr/share/fonts/truetype/gongwen/FangSong_GB2312.ttf" | sha256sum -c - \
+    && echo "99092cbb0df301625f46509e85854db8685556551742097ab3fbbc2e2ca0778b  /usr/share/fonts/truetype/gongwen/KaiTi_GB2312.ttf" | sha256sum -c - \
+    && echo "2322dbfb4fe3b51e5f530c0ee668a7d83df20c0fd8b1aa113a0a9e7ee45d45f3  /usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf" | sha256sum -c - \
+    && ln -sf /usr/share/fonts/truetype/gongwen/FangSong_GB2312.ttf \
         /usr/share/fonts/truetype/gongwen/simfang.ttf \
-    && ln -sf /usr/share/fonts/truetype/arphic-gkai00mp/gkai00mp.ttf \
+    && ln -sf /usr/share/fonts/truetype/gongwen/KaiTi_GB2312.ttf \
         /usr/share/fonts/truetype/gongwen/simkai.ttf \
+    && ln -sf /usr/share/fonts/truetype/gongwen/KaiTi_GB2312.ttf \
+        /usr/share/fonts/truetype/gongwen/fzkai-z03s.ttf \
+    && ln -sf /usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf \
+        /usr/share/fonts/truetype/gongwen/fzxiaobiaosong-b05s.ttf \
     && ln -sf /usr/share/fonts/truetype/arphic-gbsn00lp/gbsn00lp.ttf \
         /usr/share/fonts/truetype/gongwen/simsun.ttf \
     && ln -sf /usr/share/fonts/truetype/wqy/wqy-zenhei.ttc \
         /usr/share/fonts/truetype/gongwen/simhei.ttc \
-    && ln -sf /usr/share/fonts/truetype/arphic-gkai00mp/gkai00mp.ttf \
-        /usr/share/fonts/truetype/gongwen/fzkai-z03s.ttf \
-    && ln -sf /usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc \
-        /usr/share/fonts/truetype/gongwen/fzxiaobiaosong-b05s.ttc \
     && fc-cache -f
 
 COPY docker/ofd2pdf /usr/local/bin/ofd2pdf

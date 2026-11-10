@@ -69,7 +69,7 @@ docker compose ps
 - LibreOffice Writer：处理 `.doc`、`.wps` 到 `.docx`
 - LibreOffice Calc：处理 `.xls`、`.et` 到 `.xlsx`
 - 毕昇 JDK 21 运行时和 OFDRW：处理 `.ofd` 到 `.pdf`
-- Noto CJK、文泉驿、文鼎和朱雀仿宋字体：减少中文字体缺失导致的排版问题
+- Noto CJK、文泉驿、文鼎、朱雀仿宋及内置公文仿宋/楷体/小标宋字体：减少中文字体缺失导致的排版问题
 
 查看日志：
 
@@ -279,10 +279,13 @@ uv run python scripts/test_real_samples.py \
 - `.ofd` 是固定版式文档，转换为 PDF 属于有损迁移：字体替换、复杂矢量图形、
   电子签章与印章可能失真，加密文档会直接转换失败。该能力面向知识库解析和问答，
   不用于还原可编辑文档。
+- 服务会绘制 `Signs/*` 中由 `SignedValue` 或独立 `Seal` 提供的电子签章外观；
+  签章图片为 PNG/JPEG 或嵌套 OFD 时优先保留。
 - 部分 WPS 生成的 OFD 会用重叠描边模拟粗体，PDF 文本层可能在标题或页眉出现重复
   字符；正文提取不受影响，建议用业务样本回归检索和问答效果。
-- OFD 未内嵌字体时会嵌入镜像内的替代字体，PDF 体积可能明显增大；调用方仍需按
-  自身输出大小上限处理转换结果。
+- OFD 未内嵌字体时会嵌入镜像内的替代字体，PDF 体积会明显增大。`ofd2pdf` 会在
+  转换后用 Ghostscript 做字体子集化和流压缩，测试样本可从 29 MB 降到约 600 KB；
+  如果压缩失败会保留原始 PDF。
 - 加密、损坏或对应转换引擎无法识别的文件会转换失败。
 - `.doc` 和 `.xls` 的输出目标分别是标准 OOXML `.docx` 和 `.xlsx`，`.ofd` 的输出
   目标是包含至少一页且可解析的 PDF；服务只有在输出结构有效时才返回成功。
@@ -290,23 +293,22 @@ uv run python scripts/test_real_samples.py \
 
 ## 公文字体
 
-镜像按 GB/T 9704-2012 常见字体名称准备了开源替代字体：
+镜像按 GB/T 9704-2012 常见字体名称准备字体：
 
-| 公文标准字体 | 镜像内替代字体 |
-| --- | --- |
-| 宋体 | AR PL SungtiL GB |
-| 仿宋 / 仿宋_GB2312 | 朱雀仿宋（Zhuque Fangsong） |
-| 楷体 / 楷体_GB2312 | AR PL KaitiM GB |
-| 黑体 | 文泉驿正黑 |
-| 方正小标宋简体 | Noto Serif CJK SC |
+| 公文标准字体 | 镜像内字体 | 兜底字体 |
+| --- | --- | --- |
+| 宋体 | AR PL SungtiL GB | Noto Serif CJK SC |
+| 仿宋 / 仿宋_GB2312 | 仿宋_GB2312 | 朱雀仿宋 |
+| 楷体 / 楷体_GB2312 | 楷体_GB2312 | AR PL KaitiM GB |
+| 黑体 | 文泉驿正黑 | Noto Sans CJK SC |
+| 方正小标宋简体 | 方正小标宋简体 | Noto Serif CJK SC |
 
-朱雀仿宋字体文件随仓库提供（`docker/fonts/ZhuqueFangsong-Regular.ttf`，OFL-1.1），
-构建时不需要联网下载。
-
-OFD 内嵌字体始终优先使用，上述字体只在内嵌字体缺失时兜底。方正小标宋、中易
-宋体等商用字体不随镜像分发，如生产环境需要严格还原原字体，应将已授权的字体文件
-挂载到 `/usr/share/fonts/truetype/gongwen/` 并执行 `fc-cache -f`；OFDRW 会按
-`simsun`、`simhei`、`simkai`、`simfang` 等文件名匹配系统字体。
+OFD 内嵌字体始终优先使用，上述字体只在内嵌字体缺失时兜底。朱雀仿宋随仓库提供
+（`docker/fonts/ZhuqueFangsong-Regular.ttf`，OFL-1.1）。`docker/fonts/` 中的仿宋、
+楷体、方正小标宋由使用方提供，仓库未声明其再分发许可，部署前请确认已取得授权。
+其他已授权字体也可以挂载到 `/usr/share/fonts/truetype/gongwen/` 并执行
+`fc-cache -f`；OFDRW 会按 `simsun`、`simhei`、`simkai`、`simfang` 等文件名匹配
+系统字体。
 
 ## 生产建议
 
