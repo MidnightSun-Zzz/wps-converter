@@ -215,7 +215,7 @@ curl --fail-with-body \
 | `CONVERSION_TIMEOUT_SECONDS` | 否 | `120` | 单个转换任务超时时间 |
 | `SOFFICE_PATH` | 否 | `soffice` | LibreOffice 可执行文件路径 |
 | `OFD_CONVERTER_PATH` | 否 | `ofd2pdf` | OFD 转 PDF 可执行文件路径 |
-| `OFD_FALLBACK_FONT` | 否 | 镜像内方正小标宋 | OFD 字体资源缺失时嵌入的兜底字体 |
+| `OFD_FALLBACK_FONT` | 否 | 镜像内方正小标宋 | OFD 标题/红头字体缺失时嵌入的兜底字体 |
 | `LOG_LEVEL` | 否 | `INFO` | 日志级别 |
 
 所有数值配置必须是正整数。服务不会记录 API Key、文件内容或客户端文件名。
@@ -284,9 +284,10 @@ uv run python scripts/test_real_samples.py \
   签章图片为 PNG/JPEG 或嵌套 OFD 时优先保留。
 - 部分 WPS 生成的 OFD 会用重叠描边模拟粗体，PDF 文本层可能在标题或页眉出现重复
   字符；正文提取不受影响，建议用业务样本回归检索和问答效果。
-- OFD 字体资源没有可用的 `FontFile`、系统里也找不到对应字体时，服务会把这个
-  字体资源替换为 `OFD_FALLBACK_FONT`（默认方正小标宋），避免红头和标题变成方框。
-  已有字体文件的资源不会被覆盖；正文的内嵌字体也不受影响。
+- 标题和红头用的字体资源没有可用 `FontFile` 时，服务会用 `OFD_FALLBACK_FONT`
+  （默认方正小标宋）兜底，避免这两类文字变成方框。判定依据是文字字号明显大于正文
+  （默认 6.5mm 以上）或文字颜色为红色，正文不会因为缺字体被整体替换。已有字体
+  文件的资源不会被覆盖。
 - OFD 未内嵌字体时会嵌入镜像内的替代字体，PDF 体积会明显增大。`ofd2pdf` 会在
   转换后用 Ghostscript 做字体子集化和流压缩，测试样本可从 29 MB 降到约 600 KB；
   如果压缩失败会保留原始 PDF。

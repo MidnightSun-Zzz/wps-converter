@@ -30,8 +30,9 @@ import java.util.zip.ZipOutputStream;
  * 给 OFD 里没有可用字体文件的字体资源嵌入一个兜底字体。
  *
  * <p>红头和标题用的字体各家不一样，有些 OFD 既不内嵌字体，系统里也没有对应字库，
- * PDF 里就会只剩方框。正文一般能正常显示，所以只在字体资源本身没有可用文件时补字体，
- * 已经内嵌或能找到系统字体的资源保持原样。</p>
+ * PDF 里就会只剩方框。正文一般能正常显示，所以只补标题、红头用到的缺失字体：
+ * 字号明显大于正文，或者文字颜色是红色。正文的字体资源不动，已经有字体文件的
+ * 资源也不覆盖。</p>
  */
 final class OfdFontFallbackPatcher {
 
@@ -39,6 +40,8 @@ final class OfdFontFallbackPatcher {
             "/usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf";
     private static final String FALLBACK_FILE_NAME = "ofd_fallback_fzx.ttf";
     private static final String OFD_NS = "http://www.ofdspec.org/2016";
+    /** 公文标题一般是 2 号字（约 7.8mm），正文 3 号字约 5.6mm。 */
+    private static final double TITLE_MIN_SIZE_MM = 6.5;
 
     private OfdFontFallbackPatcher() {
     }
@@ -66,13 +69,15 @@ final class OfdFontFallbackPatcher {
                     names.add(entry.getName());
                 }
             }
+            Set<String> titleFontIds = collectTitleFontIds(raw);
             List<EntryData> entries = new ArrayList<>();
             Set<String> addedFonts = new HashSet<>();
             boolean changed = false;
             for (EntryData entry : raw) {
                 byte[] data = entry.data();
                 if (entry.name().endsWith(".xml")) {
-                    PatchedXml patched = patchXml(entry.name(), data, names);
+                    PatchedXml patched = patchXml(
+                            entry.name(), data, names, titleFontIds);
                     if (patched != null) {
                         data = patched.bytes();
                         if (addedFonts.add(patched.fontEntry())) {
@@ -112,7 +117,8 @@ final class OfdFontFallbackPatcher {
         }
     }
 
-    private static PatchedXml patchXml(String entryName, byte[] data, Set<String> names) {
+    private static PatchedXml patchXml(
+            String entryName, byte[] data, Set<String> names, Set<String> titleFontIds) {
         try {
             Document document = parse(data);
             NodeList fonts = document.getElementsByTagNameNS(OFD_NS, "Font");
@@ -131,10 +137,13 @@ final class OfdFontFallbackPatcher {
             boolean changed = false;
             for (int index = 0; index < fonts.getLength(); index++) {
                 Element font = (Element) fonts.item(index);
-                if (!hasUsableFontFile(font, baseDir, names)) {
-                    setFontFile(document, font, FALLBACK_FILE_NAME);
-                    changed = true;
+                String id = font.getAttribute("ID");
+                if ((!titleFontIds.contains(id) && !looksLikeTitleFont(font))
+                        || hasUsableFontFile(font, baseDir, names)) {
+                    continue;
                 }
+                setFontFile(document, font, FALLBACK_FILE_NAME);
+                changed = true;
             }
             if (!changed) {
                 return null;
@@ -143,6 +152,84 @@ final class OfdFontFallbackPatcher {
         } catch (Exception error) {
             return null;
         }
+    }
+
+    /**
+     * 从页面文字里找出标题、红头用到的字体资源 ID。
+     *
+     * <p>字号明显大于正文，或者文字颜色是红色，就认为属于标题/红头。只看这两个特征，
+     * 是为了避免正文缺字体时也被整体换成小标宋。</p>
+     */
+    private static Set<String> collectTitleFontIds(List<EntryData> entries) {
+        Set<String> ids = new HashSet<>();
+        for (EntryData entry : entries) {
+            if (!entry.name().endsWith(".xml")) {
+                continue;
+            }
+            try {
+                Document document = parse(entry.data());
+                NodeList texts = document.getElementsByTagNameNS(OFD_NS, "TextObject");
+                for (int index = 0; index < texts.getLength(); index++) {
+                    Element text = (Element) texts.item(index);
+                    String fontId = text.getAttribute("Font");
+                    if (fontId.isEmpty()) {
+                        continue;
+                    }
+                    if (isLargeText(text) || isRedText(text)) {
+                        ids.add(fontId);
+                    }
+                }
+            } catch (Exception ignored) {
+                // 单个 XML 解析失败不影响其它页面
+            }
+        }
+        return ids;
+    }
+
+    private static boolean isLargeText(Element text) {
+        String value = text.getAttribute("Size");
+        if (value.isEmpty()) {
+            return false;
+        }
+        try {
+            return Double.parseDouble(value) >= TITLE_MIN_SIZE_MM;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isRedText(Element text) {
+        return isRedColor(text, "FillColor") || isRedColor(text, "StrokeColor");
+    }
+
+    private static boolean isRedColor(Element text, String localName) {
+        NodeList colors = text.getElementsByTagNameNS(OFD_NS, localName);
+        for (int index = 0; index < colors.getLength(); index++) {
+            Element color = (Element) colors.item(index);
+            String[] parts = color.getAttribute("Value").trim().split("\\s+");
+            if (parts.length < 3) {
+                continue;
+            }
+            try {
+                int red = Integer.parseInt(parts[0]);
+                int green = Integer.parseInt(parts[1]);
+                int blue = Integer.parseInt(parts[2]);
+                if (red >= 150 && green <= 120 && blue <= 120) {
+                    return true;
+                }
+            } catch (NumberFormatException ignored) {
+                // OFD 颜色值格式不标准时跳过，不影响其它文字
+            }
+        }
+        return false;
+    }
+
+    private static boolean looksLikeTitleFont(Element font) {
+        String name = (font.getAttribute("FontName") + " "
+                + font.getAttribute("FamilyName")).toLowerCase();
+        return name.contains("小标宋") || name.contains("大标宋")
+                || name.contains("fzxiaobiao") || name.contains("fzxbs")
+                || name.contains("标题");
     }
 
     private static boolean hasUsableFontFile(Element font, String baseDir, Set<String> names) {
