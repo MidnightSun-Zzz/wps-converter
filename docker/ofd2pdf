@@ -12,9 +12,8 @@ output=$2
     -Xmx512m \
     -jar /opt/ofd2pdf/ofd2pdf.jar "$input" "$output"
 
-# OFDRW embeds the full substituted CJK fonts, which is large when the OFD has
-# no embedded fonts. Subset and recompress with Ghostscript, keeping the text
-# layer and vector graphics. Keep the original PDF if the rewrite fails.
+# OFD 没内嵌字体时，OFDRW 会把整套中文字体嵌进 PDF，文件会很大。
+# 用 Ghostscript 做字体子集化和流压缩，保留文字层和矢量图；压缩失败就保留原 PDF。
 compressed="${output}.compressed.pdf"
 if command -v gs >/dev/null 2>&1 && gs -q -dNOPAUSE -dBATCH -dSAFER \
     -sDEVICE=pdfwrite \

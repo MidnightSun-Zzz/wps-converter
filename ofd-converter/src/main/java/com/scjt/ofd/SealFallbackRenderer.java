@@ -36,14 +36,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Adds seals that OFDRW's PDFExporter does not render.
+ * 补画 OFDRW PDFExporter 没有渲染出来的印章。
  *
- * <p>OFDRW 2.5.1 renders seals carried by a {@code SignedValue} signature.
- * Some WPS-generated OFD files instead store the seal in
- * {@code SignedInfo/Seal} (a standalone SES seal without a signed value).
- * This class reads those seals and overlays them on the exported PDF at the
- * positions declared by {@code StampAnnot}. Any failure is ignored so a seal
- * problem cannot break the page conversion.</p>
+ * <p>OFDRW 2.5.1 只处理签名值里的印章。有些 WPS/KingGrid 生成的 OFD 把印章放在
+ * {@code SignedInfo/Seal}，或者签名值文件带尾部数据导致解析失败；这两种情况都会
+ * 被它静默跳过。这里按 {@code StampAnnot} 的位置把印章叠到导出的 PDF 上。
+ * 印章问题不能影响整篇转换，所以任何异常都只跳过补画，不向外抛。</p>
  */
 final class SealFallbackRenderer {
 
@@ -79,8 +77,7 @@ final class SealFallbackRenderer {
                         image = readSealImage(reader, signature, seal);
                     }
                     if (image == null && description.getSignedValue() != null) {
-                        // KingGrid/WPS may use a relative SignedValue path that
-                        // OFDReader cannot resolve; parse it ourselves.
+                        // KingGrid/WPS 会用相对路径，OFDReader 解析不了时由这里自己读。
                         image = readSignedValueImage(
                                 reader, signature, description.getSignedValue());
                     }
@@ -120,7 +117,7 @@ final class SealFallbackRenderer {
                 try {
                     Files.deleteIfExists(temporary);
                 } catch (Exception ignored) {
-                    // best effort cleanup
+                    // 清理失败不影响主流程
                 }
             }
         }
@@ -143,7 +140,7 @@ final class SealFallbackRenderer {
                 }
             }
         } catch (RuntimeException ignored) {
-            // PDFExporter will also see an empty set; draw everything available.
+            // 读不到已渲染集合时按空集处理，宁可重画也不要漏掉印章。
         }
         return ids;
     }

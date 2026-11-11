@@ -17,6 +17,7 @@ services:
       CONVERSION_TIMEOUT_SECONDS: "${CONVERSION_TIMEOUT_SECONDS:-120}"
       SOFFICE_PATH: "${SOFFICE_PATH:-/usr/bin/soffice}"
       OFD_CONVERTER_PATH: "${OFD_CONVERTER_PATH:-ofd2pdf}"
+      OFD_FALLBACK_FONT: "${OFD_FALLBACK_FONT:-/usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
     read_only: true
     tmpfs:

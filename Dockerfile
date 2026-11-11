@@ -101,9 +101,8 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/bisheng-jre.tar.gz \
     && /opt/bisheng-jre/bin/java -version
 
-# GB/T 9704 fonts. Embedded OFD fonts always take precedence. The three
-# licensed fonts below are provided in docker/fonts and are used before the
-# open-source substitutes; Zhuque remains as a FangSong fallback.
+# GB/T 9704 公文字体。OFD 内嵌字体优先；下面三种授权字体由使用方放进
+# docker/fonts，排在开源替代字体之前，朱雀仿宋只作为仿宋兜底。
 COPY docker/fonts/ZhuqueFangsong-Regular.ttf /usr/share/fonts/truetype/gongwen/ZhuqueFangsong-Regular.ttf
 COPY docker/fonts/OFL-ZhuqueFangsong.txt /usr/share/doc/fonts-zhuque-fangsong/
 COPY docker/fonts/仿宋_GB2312.ttf /usr/share/fonts/truetype/gongwen/FangSong_GB2312.ttf
@@ -150,6 +149,7 @@ COPY --from=uv /usr/local/bin/uv /usr/local/bin/uv
 
 ENV JAVA_HOME=/opt/bisheng-jre \
     PATH="/opt/bisheng-jre/bin:/opt/venv/bin:$PATH" \
+    OFD_FALLBACK_FONT=/usr/share/fonts/truetype/gongwen/FZXiaoBiaoSong-B05S.ttf \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     VIRTUAL_ENV=/opt/venv \
     UV_LINK_MODE=copy \
